@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.env
+*.log
+.DS_Store
+
+# generated media
+server/storage/uploads/*
+server/storage/hls/*
+server/storage/zips/*
+!server/storage/uploads/.gitkeep
+!server/storage/hls/.gitkeep
+!server/storage/zips/.gitkeep

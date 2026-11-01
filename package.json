@@ -1,0 +1,17 @@
+{
+  "name": "mp4-m3u8",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Convert MP4 files into adaptive HLS (m3u8) streams, Netflix-style",
+  "workspaces": ["client", "server"],
+  "scripts": {
+    "dev": "concurrently -n server,client -c blue,magenta \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:client": "npm run dev -w client",
+    "dev:server": "npm run dev -w server",
+    "build": "npm run build -w client",
+    "start": "npm run start -w server"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  }
+}
