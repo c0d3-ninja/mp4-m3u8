@@ -4,6 +4,7 @@
 //   { action: 'ensure' }                 -> creates the file with [] if it is missing
 //   { action: 'find', dramaId }          -> { ok, exists, entry? }
 //   { action: 'add', entry }             -> appends, or replaces the entry with the same dramaId
+//   { action: 'list' }                   -> { ok, entries } (the whole array, for the Gemini card)
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -42,6 +43,8 @@ function handle(msg) {
   switch (msg?.action) {
     case 'ensure':
       return { ok: true, file: FILE, created: ensureFile() }
+    case 'list':
+      return { ok: true, file: FILE, entries: readList() }
     case 'find': {
       const entry = readList().find((e) => dramaIdOf(e) === String(msg.dramaId))
       return { ok: true, file: FILE, exists: !!entry, entry }

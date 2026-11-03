@@ -34,6 +34,23 @@ async function getSaved() {
   return saved || {}
 }
 
+const thumbs = new Map() // poster URL -> Promise<data URL>, while the worker is alive
+
+async function makeThumb(url, width) {
+  const res = await fetch(url, { credentials: 'omit', referrerPolicy: 'no-referrer' })
+  if (!res.ok) throw new Error(`Poster HTTP ${res.status}${res.status === 403 ? ' (link expired?)' : ''}`)
+  const bitmap = await createImageBitmap(await res.blob())
+  const height = Math.round((bitmap.height * width) / bitmap.width) || width
+  const canvas = new OffscreenCanvas(width, height)
+  canvas.getContext('2d').drawImage(bitmap, 0, 0, width, height)
+  bitmap.close()
+  const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.8 })
+  const bytes = new Uint8Array(await blob.arrayBuffer())
+  let bin = ''
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+  return `data:image/jpeg;base64,${btoa(bin)}`
+}
+
 async function handle(payload) {
   if (payload?.action === 'find') {
     const id = String(payload.dramaId)
@@ -58,6 +75,30 @@ async function handle(payload) {
       await chrome.storage.local.set({ saved })
     }
     return r
+  }
+
+  if (payload?.action === 'thumb') {
+    // Gemini's Content-Security-Policy blocks images from TikTok's CDN, but allows data: URLs. So the worker
+    // (which may fetch the CDN thanks to host_permissions) downloads the poster and returns a small JPEG data URL.
+    const url = String(payload.url || '')
+    if (!/^https?:\/\//.test(url)) return { ok: false, error: 'No poster URL' }
+    if (!thumbs.has(url)) thumbs.set(url, makeThumb(url, Number(payload.width) || 120))
+    try {
+      return { ok: true, dataUrl: await thumbs.get(url) }
+    } catch (e) {
+      thumbs.delete(url)
+      return { ok: false, error: e.message }
+    }
+  }
+
+  if (payload?.action === 'download') {
+    // Content scripts can't download cross-origin images (the CDN ignores <a download>), so the worker does it.
+    const url = String(payload.url || '')
+    if (!/^https?:\/\//.test(url)) return { ok: false, error: 'No poster URL' }
+    const ext = url.match(/\.(jpe?g|png|webp|avif|gif|heic)(?:[?#]|$)/i)?.[1]?.toLowerCase() || 'jpg'
+    const base = String(payload.name || 'poster').replace(/[\\/:*?"<>|\x00-\x1f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120) || 'poster'
+    const id = await chrome.downloads.download({ url, filename: `${base}.${ext}`, conflictAction: 'uniquify' })
+    return { ok: true, id, filename: `${base}.${ext}` }
   }
 
   return callHost(payload)
