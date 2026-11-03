@@ -31,7 +31,7 @@ export const config = {
 
   uploadsDir: path.join(root, 'storage', 'uploads'),
 
-  // Converted series are written to "<downloadsDir>/<uuid>/<FolderName>/", and this is the folder shown in the
+  // Converted series are written to "<downloadsDir>/<uuid>/drama/", and this is the folder shown in the
   // "Folders" tab (browse + delete). Defaults to ~/Downloads of the user running the server.
   downloadsDir: path.resolve(expandHome(process.env.DOWNLOADS_DIR || '~/Downloads')),
 }

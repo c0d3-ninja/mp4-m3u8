@@ -6,6 +6,8 @@ import { transcodeToHls } from './transcoder.js'
 
 export const VIDEO_EXTENSIONS = ['.mp4', '.m4v', '.mov', '.mkv', '.webm', '.avi']
 const MAX_FILES = 2000
+// Every series is written to "<downloads>/<uuid>/drama/"; the real name is in drama.json next to it
+export const SERIES_DIR = 'drama'
 
 const jobs = new Map()
 const queue = [] // [{ job, file }]
@@ -71,10 +73,26 @@ setInterval(() => {
 /**
  * Create a job for a folder. `files` = [{ relativePath, size }], paths relative to the folder.
  */
-export function createJob({ folderName, files } = {}) {
+/** Optional poster/cover image URL for the drama: "" -> null, otherwise it must be http(s). */
+function cleanImageUrl(value) {
+  const v = String(value ?? '').trim()
+  if (!v) return null
+  let url
+  try {
+    url = new URL(v)
+  } catch {
+    throw new HttpError(400, 'Image URL is not a valid URL (e.g. https://example.com/poster.jpg)')
+  }
+  if (!['http:', 'https:'].includes(url.protocol)) throw new HttpError(400, 'Image URL must start with http:// or https://')
+  if (v.length > 2048) throw new HttpError(400, 'Image URL is too long')
+  return url.href
+}
+
+export function createJob({ folderName, files, imageUrl } = {}) {
   if (typeof folderName !== 'string' || !folderName.trim()) {
     throw new HttpError(400, 'folderName is required')
   }
+  const image = cleanImageUrl(imageUrl)
   if (!Array.isArray(files) || files.length === 0) {
     throw new HttpError(400, 'Select at least one video')
   }
@@ -83,7 +101,7 @@ export function createJob({ folderName, files } = {}) {
   }
 
   const folder = safeName(folderName)
-  // The job id is a random UUID; the output goes to "<downloads>/<uuid>/<FolderName>/"
+  // The job id is a random UUID; the output goes to "<downloads>/<uuid>/drama/"
   const id = crypto.randomUUID()
   const usedOutputs = new Set()
 
@@ -131,6 +149,8 @@ export function createJob({ folderName, files } = {}) {
     status: 'uploading', // uploading → processing → done | failed | cancelled
     createdAt: new Date().toISOString(),
     lastSeen: Date.now(),
+    // Written to "<downloads>/<uuid>/drama.json" as soon as the job starts
+    drama: { dramaName: folderName.trim(), imageUrl: image },
     files: jobFiles,
     uploadsComplete: false,
     output: null, // { folder, path, size } once done
@@ -138,7 +158,7 @@ export function createJob({ folderName, files } = {}) {
     cancelled: false,
     uploadDir: path.join(config.uploadsDir, id),
     workDir: path.join(config.downloadsDir, id),
-    outputRoot: path.join(config.downloadsDir, id, folder),
+    outputRoot: path.join(config.downloadsDir, id, SERIES_DIR),
     controllers: new Set(),
     running: new Set(),
     r2: null, // Cloudflare upload of the converted output
@@ -153,13 +173,14 @@ export function toPublic(job) {
   return {
     id: job.id,
     folderName: job.folderName,
+    imageUrl: job.drama.imageUrl,
     status: job.status,
     createdAt: job.createdAt,
     uploadsComplete: job.uploadsComplete,
     error: job.error,
     output: job.output,
     r2: job.r2,
-    hlsBaseUrl: `/hls/${job.id}/${encodeURIComponent(job.folderName)}`,
+    hlsBaseUrl: `/hls/${job.id}/${SERIES_DIR}`,
     files: job.files.map((f) => ({
       id: f.id,
       relativePath: f.relativePath,
@@ -171,6 +192,12 @@ export function toPublic(job) {
       result: f.result,
     })),
   }
+}
+
+/** "<downloads>/<uuid>/drama.json" next to the series folder: { dramaName, imageUrl }. */
+export async function writeDramaInfo(job) {
+  await fsp.mkdir(job.workDir, { recursive: true })
+  await fsp.writeFile(path.join(job.workDir, 'drama.json'), `${JSON.stringify(job.drama, null, 2)}\n`)
 }
 
 /** Called after a file finished uploading to disk. */
@@ -269,7 +296,7 @@ function maybeFinish(job) {
     (size) => {
       if (job.cancelled) return
       job.output = {
-        folder: `${job.id}/${job.folderName}`, // relative to the downloads folder
+        folder: `${job.id}/${SERIES_DIR}`, // relative to the downloads folder
         path: job.outputRoot,
         size,
       }

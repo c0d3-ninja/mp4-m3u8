@@ -7,6 +7,7 @@ import {
   cancelR2Upload,
   startR2Upload,
   createJob,
+  writeDramaInfo,
   finalizeUploads,
   getJob,
   markUploaded,
@@ -35,9 +36,15 @@ function loadJob(req, res, next) {
   next()
 }
 
-// Create a job: { folderName, files: [{ relativePath, size }] }
-router.post('/', (req, res) => {
+// Create a job: { folderName, imageUrl?, files: [{ relativePath, size }] }
+router.post('/', async (req, res) => {
   const job = createJob(req.body)
+  try {
+    await writeDramaInfo(job)
+  } catch (err) {
+    await removeJob(job)
+    throw new HttpError(500, `Could not create the output folder: ${err.message}`)
+  }
   res.status(201).json(toPublic(job))
 })
 

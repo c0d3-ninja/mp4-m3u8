@@ -27,11 +27,10 @@ async function request(method, url, body, extraHeaders) {
 }
 
 export const api = {
-  createJob: (folderName, files) => request('POST', '/api/jobs', { folderName, files }),
+  createJob: (folderName, files, imageUrl) => request('POST', '/api/jobs', { folderName, files, imageUrl }),
   getJob: (id) => request('GET', `/api/jobs/${id}`),
   finalize: (id) => request('POST', `/api/jobs/${id}/finalize`),
   removeJob: (id) => request('DELETE', `/api/jobs/${id}`),
-  downloadUrl: (id) => `/api/jobs/${id}/download`,
   startR2Upload: (id, settings, prefix, skipExisting) =>
     request('POST', `/api/jobs/${id}/r2`, { prefix, skipExisting }, r2Headers(settings)),
   cancelR2Upload: (id) => request('DELETE', `/api/jobs/${id}/r2`),

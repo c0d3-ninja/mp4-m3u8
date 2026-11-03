@@ -18,6 +18,7 @@ const RANK = { uploading: 0, processing: 1, done: 3, failed: 3, cancelled: 3 }
 export default function App() {
   const [selection, setSelection] = useState(null) // { folderName, items, totalFiles }
   const [selected, setSelected] = useState(() => new Set())
+  const [imageUrl, setImageUrl] = useState('')
   const [job, setJob] = useState(null)
   const [uploads, setUploads] = useState({}) // fileId -> { progress, done, error }
   const [uploading, setUploading] = useState(false)
@@ -113,6 +114,7 @@ export default function App() {
       setError(`No videos found in "${result.folderName}". Supported: mp4, m4v, mov, mkv, webm, avi.`)
       return
     }
+    if (result.folderName !== selection?.folderName) setImageUrl('') // a different drama
     setSelection(result)
     setSelected(new Set(result.items.map((i) => i.key))) // everything selected by default
   }
@@ -142,6 +144,7 @@ export default function App() {
       created = await api.createJob(
         selection.folderName,
         chosen.map((i) => ({ relativePath: i.relativePath, size: i.size })),
+        imageUrl.trim(),
       )
     } catch (e) {
       setError(e.message)
@@ -242,6 +245,7 @@ export default function App() {
     resetToStart()
     setSelection(null)
     setSelected(new Set())
+    setImageUrl('')
     setError(null)
     setNotice(null)
   }
@@ -335,7 +339,7 @@ export default function App() {
                 <p className="eyebrow">Selected folder</p>
                 <h2>📁 {selection.folderName}</h2>
                 <p className="muted">
-                  Output: <strong>Downloads/&lt;uuid&gt;/{selection.folderName}/</strong>
+                  Output: <strong>Downloads/&lt;uuid&gt;/drama/</strong>
                 </p>
               </div>
               <div className="actions">
@@ -344,6 +348,23 @@ export default function App() {
                 </FolderPicker>
               </div>
             </div>
+
+            <label className="field">
+              <span>Image URL (optional)</span>
+              <input
+                type="text"
+                inputMode="url"
+                placeholder="https://example.com/poster.jpg"
+                value={imageUrl}
+                onChange={(e) => setImageUrl(e.target.value)}
+                disabled={starting}
+                spellCheck={false}
+              />
+              <span className="muted small">
+                Saved with the drama name ({selection.folderName}) in <strong>drama.json</strong> inside the uuid
+                folder.
+              </span>
+            </label>
 
             <FileList items={selection.items} selected={selected} onToggle={toggle} onToggleAll={toggleAll} />
 
@@ -369,7 +390,7 @@ export default function App() {
             <h2>Select a series folder</h2>
             <p className="muted">
               Every video inside is listed and selected. Each episode becomes a multi-quality HLS stream (1080p → 360p),
-              and everything is saved on the server in <strong>Downloads/&lt;random uuid&gt;/&lt;folder name&gt;/</strong>.
+              and everything is saved on the server in <strong>Downloads/&lt;random uuid&gt;/drama/</strong>, with the folder name in drama.json.
             </p>
             <FolderPicker onSelect={handleFolder}>Choose folder</FolderPicker>
           </section>

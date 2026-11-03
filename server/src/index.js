@@ -22,7 +22,7 @@ app.use('/api/r2', r2Router)
 
 app.use(express.json({ limit: '5mb' }))
 
-// Converted HLS output of a job, used by the in-app preview player: /hls/<jobId>/<Folder>/...
+// Converted HLS output of a job, used by the in-app preview player: /hls/<jobId>/drama/...
 // Only a job's own output folder is served, never the rest of the downloads folder.
 const hlsOptions = {
   fallthrough: false, // a missing file is a 404, never the client app below
@@ -70,7 +70,7 @@ app.use((err, req, res, next) => {
 
 const server = app.listen(config.port, () => {
   console.log(`Server listening on http://localhost:${config.port}`)
-  console.log(`Converted series go to ${config.downloadsDir}/<uuid>/<Folder>/`)
+  console.log(`Converted series go to ${config.downloadsDir}/<uuid>/drama/`)
   console.log(`Transcoding with ${config.ffmpegPath} (preset ${config.ffmpegPreset}, ${config.concurrency} at a time)`)
 })
 

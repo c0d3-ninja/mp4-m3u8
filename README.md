@@ -1,7 +1,7 @@
 # mp4-m3u8 — Drama Converter
 
 Pick a folder of episodes, choose which ones to convert, and the server writes an adaptive HLS stream
-(Netflix / DramaBox style) for every episode into **`<downloads>/<random uuid>/<FolderName>/`**. Nothing is zipped.
+(Netflix / DramaBox style) for every episode into **`<downloads>/<random uuid>/drama/`**. Nothing is zipped.
 
 ## Requirements
 
@@ -37,7 +37,8 @@ to the local server only.
 ```
 ~/Downloads/                          DOWNLOADS_DIR
 └── 3f2b9c1e-…-uuid/                  a new random UUID per conversion
-    └── My Drama/
+    ├── drama.json                    { "dramaName": "My Drama", "imageUrl": "https://…" }, written when it starts
+    └── drama/                        always "drama"; the real name is in drama.json
         ├── manifest.json                 episode list for your app (order, durations, paths, posters)
         ├── Episode 1/
         │   ├── master.m3u8               ← play this URL
@@ -52,6 +53,9 @@ to the local server only.
 - The source's own resolution is always the highest quality, followed by every smaller standard size. Sizes go by the
   short side, so vertical (1080×1920) and landscape (1920×1080) both work. Nothing is upscaled or capped:
   1080p → 1080p / 720p / 480p / 360p, 720p → 720p / 480p / 360p, 900p → 900p / 720p / …, 4K → 2160p / 1440p / 1080p / ….
+- `drama.json`: `dramaName` is the name of the folder you picked; `imageUrl` is the optional **Image URL** field
+  shown before **Convert** (it must be http/https; `null` when left empty). It sits next to the series folder,
+  so the Cloudflare upload (which sends `drama/`) doesn't include it.
 - The frame rate is kept as in the source (24, 29.97, 30, 60 fps…) for every quality. Video above 30 fps gets 1.5× the
   bitrate so it looks as good. Each episode's `fps` is in `manifest.json`.
 - H.264 High + AAC 128k stereo, 4 s segments, keyframes aligned across renditions for clean quality switching.
@@ -119,7 +123,7 @@ including everything inside it, or a single file.
 1. Client sends the selected file list → server creates a job (`POST /api/jobs`).
 2. Episodes are uploaded one by one (`POST /api/jobs/:id/files/:fileId`); each starts converting as soon as it
    arrives, and the uploaded copy is deleted once it's converted.
-3. Each episode is converted straight into `<DOWNLOADS_DIR>/<job uuid>/<Folder>/`. When all are done the server
+3. Each episode is converted straight into `<DOWNLOADS_DIR>/<job uuid>/drama/`. When all are done the server
    writes `manifest.json` there. "Convert another folder" keeps the output; **Cancel** deletes the partial output.
 
 Jobs live in server memory: if the server restarts, start the conversion again. A finished job that nobody has
