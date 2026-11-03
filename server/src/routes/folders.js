@@ -5,6 +5,9 @@ import { config } from '../config.js'
 import { HttpError, SERIES_DIR, VIDEO_EXTENSIONS, busyJobIds } from '../services/jobs.js'
 import { episodeGaps } from '../services/episodes.js'
 import { folderStats, invalidateStats, isInside, resolveInRoot } from '../services/downloads.js'
+import { isConvertedFolderName } from '../services/library.js'
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 const router = Router()
 
@@ -87,10 +90,17 @@ router.delete('/', async (req, res) => {
     throw new HttpError(404, 'Not found')
   }
 
-  // Each job writes to "<downloads>/<job id>/". Refuse to delete (inside) one that is still converting or
+  // Each job writes to "<downloads>/converted/<job id>/". Refuse to delete (inside) one that is still converting or
   // uploading to Cloudflare: ffmpeg / the upload would fail halfway with confusing errors.
-  const jobFolder = path.relative(root, full).split(path.sep)[0]
-  if (busyJobIds().has(jobFolder)) {
+  // Output lives in "converted/<job id>/"; deleting "converted" itself would take every job folder with it.
+  const [first, second] = path.relative(root, full).split(path.sep)
+  const busy = busyJobIds()
+  const hit = isConvertedFolderName(first)
+    ? second
+      ? busy.has(second)
+      : [...busy].some((id) => UUID.test(id))
+    : busy.has(first)
+  if (hit) {
     throw new HttpError(409, 'This folder is still being converted or uploaded. Cancel that job first, or wait for it to finish.')
   }
 

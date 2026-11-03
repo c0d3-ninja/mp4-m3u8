@@ -37,12 +37,12 @@ to the local server only.
 ```
 ~/Downloads/                          DOWNLOADS_DIR
 └── 3f2b9c1e-…-uuid/                  a new random UUID per conversion
-    ├── drama.json                    { "id": "<uuid>", "dramaName", "imageUrl", "category" }, written when it starts
+    ├── drama.json                    { "cfId": "<uuid>", ...the Move tab's JSON }, written when it starts
     └── drama/                        always "drama"; the real name is in drama.json
         ├── manifest.json                 episode list for your app (order, durations, paths, posters)
         ├── Episode 1/
         │   ├── master.m3u8               ← play this URL
-        │   ├── poster.jpg                thumbnail
+        │   ├── first_frame.webp          first frame (thumbnail)
         │   ├── 1080p/index.m3u8 + seg_000.ts …
         │   ├── 720p/ …
         │   ├── 480p/ …
@@ -114,19 +114,19 @@ uploads straight from the server's output folder.
 ## Move tab
 
 **📦 Move** (the first tab) lists every `.mp4` directly inside the downloads folder. Files in sub-folders are
-left alone, and so are macOS `._` files. Type a folder name and click **Move N files**. The folder is created in the
+left alone, and so are macOS `._` files. Fill in the drama JSON and click **Move N files**. The folder is created in the
 downloads folder if it doesn't exist, and the listed files are moved into it.
 
-- **Category** and **Image URL** (optional) are saved with the drama name you typed (`Love's Story`, before the
-  folder name is cleaned) as `<folder>/drama.json`: `{ "dramaName", "imageUrl", "category" }`. Converting that folder
-  later copies it into the output. Moving more episodes into a folder that already has one keeps its drama name, and
-  empty fields keep their old values. The image URL must be http/https.
-- Existing folder names are suggested as you type, and the form says whether the folder will be created or the files
-  added to an existing one.
+- Instead of separate fields there is one **Drama JSON** field (paste it, or use the browser extension's **Fill JSON**
+  button on this page). The whole object is saved as `<folder>/drama.json`, every key kept; converting the folder
+  later copies it into the output with `"cfId": "<uuid>"`. Moving more episodes into a folder that already has one
+  keeps the keys the new JSON doesn't have.
+- The folder is named after `app_dramaName` (else `dramaName`), cleaned: letters and numbers only, every special
+  character removed, spaces become `-`, so `Too Late, I'm Marrying the Playboy` → `Too-Late-Im-Marrying-the-Playboy`.
+  The form shows the final name and whether the folder will be created or the files added to an existing one.
 - A file is never overwritten. If the folder already has a file with that name, the file is skipped and reported.
-- The folder name is cleaned before the folder is created: apostrophes (`'`) and dots (`.`) are removed and each run
-  of spaces becomes one `-`, so `Love's  Story Vol.2` → `Loves-Story-Vol2`. The form shows the final name as you
-  type. `/` and `\` are rejected.
+- With the extension, DramaSave can download straight into that folder instead: **Paste link** creates
+  `Downloads/<folder>/drama.json`, and the episodes then download into `Downloads/<folder>/` (see `extension/README.md`).
 
 ## Folders tab
 

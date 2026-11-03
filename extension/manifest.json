@@ -20,8 +20,8 @@
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://gemini.google.com/*"],
-      "js": ["gemini.js"],
+      "matches": ["https://gemini.google.com/*", "https://chatgpt.com/*", "https://dramasave.app/*", "http://localhost:5173/*"],
+      "js": ["prompt-card.js"],
       "css": ["content.css"],
       "run_at": "document_idle"
     }

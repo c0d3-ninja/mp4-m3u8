@@ -191,7 +191,9 @@ export function readUploadFolder(fileList) {
   // A converter output folder "<uuid>/" holds drama.json next to "drama/" (the series with manifest.json).
   // Upload the series from inside drama/, with drama.json beside manifest.json.
   const dramaJson = entries.find((e) => e.parts.length === 1 && e.parts[0] === 'drama.json')
-  const seriesInDrama = entries.some((e) => e.parts.length === 2 && e.parts[0] === 'drama' && e.parts[1] === 'manifest.json')
+  const seriesInDrama = entries.some(
+    (e) => e.parts.length === 2 && e.parts[0] === 'drama' && e.parts[1] === 'manifest.json',
+  )
   if (dramaJson && seriesInDrama) {
     entries = entries
       .filter((e) => e.parts.length > 1 && e.parts[0] === 'drama')
@@ -225,34 +227,16 @@ export function readUploadFolder(fileList) {
 }
 
 /**
- * Move tab folder name: "  Love's  Story Vol.2 " -> "Loves-Story-Vol2" (apostrophes and dots removed,
- * each run of spaces -> one "-"). Same as folderSlug() in server/src/routes/move.js.
+ * Move tab folder name: "  I Raised Two Sons, But One Betrayed Me! " -> "I-Raised-Two-Sons-But-One-Betrayed-Me" (letters and
+ * numbers only, every other character removed, spaces -> "-"). Same as folderSlug() in server/src/routes/move.js.
  */
 export function folderSlug(value) {
   return String(value ?? '')
-    .replace(/['\u2018\u2019.]/g, '')
+    .normalize('NFKC')
+    .replace(/[^\p{L}\p{N}\s-]+/gu, '') // drop every special character: ' . , ! ? : & ( ) …
     .trim()
-    .replace(/\s+/g, '-')
-}
-
-/** Last category written by the Move tab, kept in this browser so it survives a refresh. */
-const CATEGORY_KEY = 'mp4-m3u8:lastCategory'
-export const storedCategory = {
-  get() {
-    try {
-      return localStorage.getItem(CATEGORY_KEY) || ''
-    } catch {
-      return ''
-    }
-  },
-  set(value) {
-    try {
-      if (value) localStorage.setItem(CATEGORY_KEY, value)
-      else localStorage.removeItem(CATEGORY_KEY)
-    } catch {
-      /* storage blocked: it just won't be remembered */
-    }
-  },
+    .replace(/[\s-]+/g, '-') // spaces (and runs of "-") -> one "-"
+    .replace(/^-+|-+$/g, '')
 }
 
 /**
@@ -263,7 +247,10 @@ export const storedCategory = {
 export function episodeGaps(names) {
   const numbers = []
   for (const name of names) {
-    const base = String(name).split('/').pop().replace(/\.[^.]+$/, '')
+    const base = String(name)
+      .split('/')
+      .pop()
+      .replace(/\.[^.]+$/, '')
     const match = base.match(/(\d+)(?!.*\d)/)
     if (match) numbers.push(Number(match[1]))
   }

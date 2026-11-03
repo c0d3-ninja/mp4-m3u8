@@ -7,7 +7,7 @@ import { recordUpload, updateMarker } from './marker.js'
 
 export const VIDEO_EXTENSIONS = ['.mp4', '.m4v', '.mov', '.mkv', '.webm', '.avi']
 const MAX_FILES = 2000
-// Every series is written to "<downloads>/<uuid>/drama/"; the real name is in drama.json next to it
+// Every series is written to "<downloads>/converted/<uuid>/drama/"; the real name is in drama.json next to it
 export const SERIES_DIR = 'drama'
 
 const jobs = new Map()
@@ -111,14 +111,6 @@ export function cleanImageUrl(value) {
   return url.href
 }
 
-/** Optional category, e.g. "Romance": trimmed, inner whitespace collapsed; "" -> null. */
-export function cleanCategory(value) {
-  const v = String(value ?? '').trim().replace(/\s+/g, ' ')
-  if (!v) return null
-  if (v.length > 100) throw new HttpError(400, 'Category is too long (max 100 characters)')
-  return v
-}
-
 /** Drama name from drama.json / the Move tab: trimmed, whitespace collapsed; "" -> null. */
 export function cleanDramaName(value) {
   const v = String(value ?? '').trim().replace(/\s+/g, ' ')
@@ -129,20 +121,46 @@ export function cleanDramaName(value) {
 
 export const DRAMA_FILE = 'drama.json'
 
+const MAX_DRAMA_JSON = 64 * 1024
+
 /**
- * createJob({ folderName, files, drama? }): `drama` is the selected folder's drama.json
- * ({ dramaName, imageUrl, category }, written by the Move tab). It is copied to "<uuid>/drama.json";
- * without it the drama name is the folder name.
+ * drama.json content: any JSON object (the Move tab stores what was pasted, e.g. an entry of dramas-next.json:
+ * { id, dramaName, category: [...], description, posterImageUrl, totalEpisodes, dramaUrl, app_dramaName, ... }).
+ * Every key is kept; "dramaName" falls back to `fallbackName`, and "imageUrl", when present, must be http(s).
+ */
+export function cleanDramaJson(value, fallbackName = null) {
+  if (value == null) return fallbackName ? { dramaName: fallbackName } : null
+  if (typeof value !== 'object' || Array.isArray(value)) throw new HttpError(400, 'drama.json must be a JSON object')
+  const text = JSON.stringify(value)
+  if (text.length > MAX_DRAMA_JSON) throw new HttpError(400, 'drama.json is too large (max 64 KB)')
+  const drama = JSON.parse(text) // a plain copy
+  const name = cleanDramaName(drama.dramaName) || fallbackName
+  if (name) drama.dramaName = name
+  if ('imageUrl' in drama) drama.imageUrl = cleanImageUrl(drama.imageUrl)
+  return drama
+}
+
+/** What the UI shows of a drama.json: { dramaName, imageUrl, category } (app_dramaName / posterImageUrl preferred). */
+export function dramaSummary(data) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null
+  const str = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null)
+  const category = Array.isArray(data.category) ? data.category.filter((c) => typeof c === 'string').join(', ') : data.category
+  return {
+    dramaName: str(data.app_dramaName) || str(data.dramaName),
+    imageUrl: str(data.imageUrl) || str(data.posterImageUrl),
+    category: str(category),
+  }
+}
+
+/**
+ * createJob({ folderName, files, drama? }): `drama` is the selected folder's drama.json (written by the Move tab),
+ * copied with all its keys to "<uuid>/drama.json"; without it the drama name is the folder name.
  */
 export function createJob({ folderName, files, drama: info, fromDisk = false } = {}) {
   if (typeof folderName !== 'string' || !folderName.trim()) {
     throw new HttpError(400, 'folderName is required')
   }
-  const drama = {
-    dramaName: cleanDramaName(info?.dramaName) || folderName.trim(),
-    imageUrl: cleanImageUrl(info?.imageUrl),
-    category: cleanCategory(info?.category),
-  }
+  const drama = cleanDramaJson(info ?? null, folderName.trim())
   if (!Array.isArray(files) || files.length === 0) {
     throw new HttpError(400, 'Select at least one video')
   }
@@ -211,8 +229,8 @@ export function createJob({ folderName, files, drama: info, fromDisk = false } =
     error: null,
     cancelled: false,
     uploadDir: path.join(config.uploadsDir, id),
-    workDir: path.join(config.downloadsDir, id),
-    outputRoot: path.join(config.downloadsDir, id, SERIES_DIR),
+    workDir: path.join(config.convertedDir, id),
+    outputRoot: path.join(config.convertedDir, id, SERIES_DIR),
     controllers: new Set(),
     running: new Set(),
     r2: null, // Cloudflare upload of the converted output
@@ -250,11 +268,13 @@ export function toPublic(job) {
   }
 }
 
-/** "<downloads>/<uuid>/drama.json" next to the series folder: { id, dramaName, imageUrl, category }. */
+/** "<downloads>/<uuid>/drama.json" next to the series folder: { cfId: <uuid>, ...the source folder's drama.json }. */
 export async function writeDramaInfo(job) {
   await fsp.mkdir(job.workDir, { recursive: true })
-  // "id" = the random uuid of this conversion (its folder name and default bucket folder), first in the file
-  const info = { id: job.id, ...job.drama }
+  // "cfId" = the random uuid of this conversion (its folder name and default bucket folder), first in the file.
+  // Every other key (including the TikTok "id" from dramas-next.json) is copied from the source drama.json.
+  const { cfId: _old, ...rest } = job.drama || {}
+  const info = { cfId: job.id, ...rest }
   await fsp.writeFile(path.join(job.workDir, DRAMA_FILE), `${JSON.stringify(info, null, 2)}\n`)
   await updateMarker(job.workDir, () => ({
     id: job.id,
@@ -491,7 +511,7 @@ export function startFolderUpload(id, connection, prefix, uploadDirectory, optio
   if (job) return startR2Upload(job, connection, prefix, uploadDirectory, options)
   let target = folderUploads.get(id)
   if (!target) {
-    const workDir = path.join(config.downloadsDir, id)
+    const workDir = path.join(config.convertedDir, id)
     target = { id, workDir, outputRoot: path.join(workDir, SERIES_DIR), r2: null, r2Controller: null }
     folderUploads.set(id, target)
   }
@@ -533,6 +553,36 @@ export async function removeJob(job) {
 /** On startup: create storage folders and drop half-finished uploads from a previous run. */
 export async function prepareStorage() {
   await fsp.rm(config.uploadsDir, { recursive: true, force: true })
-  await Promise.all([config.uploadsDir, config.downloadsDir].map((dir) => fsp.mkdir(dir, { recursive: true })))
+  await Promise.all(
+    [config.uploadsDir, config.downloadsDir, config.convertedDir].map((dir) => fsp.mkdir(dir, { recursive: true })),
+  )
   await fsp.writeFile(path.join(config.uploadsDir, '.gitkeep'), '')
+  await moveOldOutput()
+}
+
+const UUID_NAME = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * Conversions made before "converted/" existed sit at "<downloads>/<uuid>/": move them into "converted/<uuid>/"
+ * (a rename on the same disk, so it is instant). Nothing is converting yet at startup.
+ */
+async function moveOldOutput() {
+  const entries = await fsp.readdir(config.downloadsDir, { withFileTypes: true }).catch(() => [])
+  for (const e of entries) {
+    if (!e.isDirectory() || !UUID_NAME.test(e.name)) continue
+    const from = path.join(config.downloadsDir, e.name)
+    const to = path.join(config.convertedDir, e.name)
+    const isOutput = await fsp.stat(path.join(from, SERIES_DIR)).then((s) => s.isDirectory(), () => false)
+    if (!isOutput) continue
+    if (await fsp.stat(to).then(() => true, () => false)) {
+      console.warn(`Not moving ${from}: ${to} already exists`)
+      continue
+    }
+    try {
+      await fsp.rename(from, to)
+      console.log(`Moved converted folder ${e.name} into ${config.convertedDir}`)
+    } catch (err) {
+      console.warn(`Could not move ${from} into ${config.convertedDir}: ${err.message}`)
+    }
+  }
 }

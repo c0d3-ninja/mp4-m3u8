@@ -146,6 +146,12 @@ input[type='text'], input[type='password'], input:not([type]) {
 }
 input:not([type='checkbox']):focus { outline: 2px solid rgba(229, 9, 20, 0.5); outline-offset: 0; border-color: transparent; }
 input:disabled { opacity: 0.6; }
+.json-input {
+  width: 100%; min-width: 0; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 8px;
+  padding: 9px 11px; font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical;
+}
+.json-input:focus { outline: 2px solid rgba(229, 9, 20, 0.5); outline-offset: 0; border-color: transparent; }
+.json-input:disabled { opacity: 0.6; }
 .input-with-btn { display: flex; gap: 8px; align-items: center; }
 .input-prefix { display: flex; align-items: center; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); min-width: 0; }
 .input-prefix > span { padding-left: 11px; white-space: nowrap; font-size: 14px; }

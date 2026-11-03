@@ -1,6 +1,6 @@
 import fsp from 'node:fs/promises'
 import path from 'node:path'
-import { config } from '../config.js'
+import { CONVERTED_FOLDER, config } from '../config.js'
 import { folderStats, isInside, realRoot } from './downloads.js'
 import { fsLimit } from './limit.js'
 import { readMarker } from './marker.js'
@@ -18,6 +18,7 @@ import {
   removeJob,
   toPublic,
   writeDramaInfo,
+  dramaSummary,
 } from './jobs.js'
 
 // What the downloads folder holds, for the Convert tab (folders of MP4s) and the Upload tab (converted output).
@@ -34,12 +35,15 @@ async function readJson(file) {
   }
 }
 
-/** A converter output folder: "<root>/<uuid>/" holding "drama/". */
-async function isOutputDir(root, name) {
+/** A converter output folder: "<downloads>/converted/<uuid>/" holding "drama/". */
+async function isOutputDir(name) {
   if (!UUID.test(name)) return false
-  const st = await fsp.stat(path.join(root, name, SERIES_DIR)).catch(() => null)
+  const st = await fsp.stat(path.join(config.convertedDir, name, SERIES_DIR)).catch(() => null)
   return Boolean(st?.isDirectory())
 }
+
+/** "converted" (any case: macOS folders are case-insensitive) is the output folder, never a drama to convert. */
+export const isConvertedFolderName = (name) => String(name).toLowerCase() === CONVERTED_FOLDER
 
 /** Every video under `dir` (hidden files and folders skipped), as [{ relativePath, fullPath, size }]. */
 async function findVideos(dir) {
@@ -62,11 +66,7 @@ async function findVideos(dir) {
   return out
 }
 
-function pickDrama(data) {
-  if (!data) return null
-  const pick = (k) => (typeof data[k] === 'string' && data[k].trim() ? data[k].trim() : null)
-  return { dramaName: pick('dramaName'), imageUrl: pick('imageUrl'), category: pick('category') }
-}
+const pickDrama = dramaSummary
 
 /** Status of a converted folder: the live job wins over what .job.json says. */
 function outputStatus(job, marker, hasManifest) {
@@ -76,8 +76,8 @@ function outputStatus(job, marker, hasManifest) {
   return hasManifest ? 'done' : 'interrupted' // converted before .job.json existed
 }
 
-async function describeOutput(root, name, liveJobs) {
-  const dir = path.join(root, name)
+async function describeOutput(name, liveJobs) {
+  const dir = path.join(config.convertedDir, name)
   const [drama, marker, manifest, stats] = await Promise.all([
     readJson(path.join(dir, DRAMA_FILE)),
     readMarker(dir),
@@ -112,12 +112,20 @@ async function describeSource(root, name) {
     readJson(path.join(dir, DRAMA_FILE)),
     fsp.stat(dir),
   ])
+  // Episode count from drama.json ("totalEpisodes", saved by the extension); null when missing or not a number
+  const total = Number(drama?.totalEpisodes)
+  const totalEpisodes = Number.isInteger(total) && total > 0 ? total : null
+  const gaps = episodeGaps(videos.map((v) => v.relativePath), totalEpisodes ?? 0)
   return {
     name,
     videos: videos.length,
+    totalEpisodes,
+    // Every episode is there: as many videos as drama.json says, and no episode number missing
+    complete: totalEpisodes !== null && videos.length === totalEpisodes && gaps.length === 0,
     size: videos.reduce((s, v) => s + v.size, 0),
-    gaps: episodeGaps(videos.map((v) => v.relativePath)),
+    gaps,
     modified: st.mtime.toISOString(),
+    hasDrama: Boolean(drama), // a readable drama.json object in the folder
     drama: pickDrama(drama),
   }
 }
@@ -125,17 +133,18 @@ async function describeSource(root, name) {
 /** GET /api/library: { root, sources: [...], converted: [...] }; each source lists the conversions made from it. */
 export async function scanLibrary() {
   const root = await realRoot()
-  const entries = await fsp.readdir(root, { withFileTypes: true })
   const liveJobs = new Map([...allJobs()].map((j) => [j.id, j]))
-
-  const kinds = await Promise.all(
-    entries
+  const dirsIn = async (dir) =>
+    (await fsp.readdir(dir, { withFileTypes: true }).catch(() => []))
       .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
-      .map(async (e) => ({ name: e.name, output: await isOutputDir(root, e.name) })),
-  )
+      .map((e) => e.name)
+
+  // Sources: the folders at the top of Downloads (not "converted/"); output: "converted/<uuid>/"
+  const [sourceNames, outputNames] = await Promise.all([dirsIn(root), dirsIn(config.convertedDir)])
+  const outputs = (await Promise.all(outputNames.map(async (n) => ((await isOutputDir(n)) ? n : null)))).filter(Boolean)
   const [converted, sources] = await Promise.all([
-    Promise.all(kinds.filter((k) => k.output).map((k) => describeOutput(root, k.name, liveJobs))),
-    Promise.all(kinds.filter((k) => !k.output).map((k) => describeSource(root, k.name))),
+    Promise.all(outputs.map((n) => describeOutput(n, liveJobs))),
+    Promise.all(sourceNames.filter((n) => !isConvertedFolderName(n)).map((n) => describeSource(root, n))),
   ])
 
   for (const src of sources) {
@@ -148,17 +157,16 @@ export async function scanLibrary() {
 
   return {
     root: config.downloadsDir,
-    // Folders without videos (e.g. an empty one) are not offered for conversion
-    sources: sources.filter((s) => s.videos > 0),
+    // Only folders with videos and a drama.json (written by the Move tab / the extension) are offered for conversion
+    sources: sources.filter((s) => s.videos > 0 && s.hasDrama),
     converted,
   }
 }
 
 /** One converted folder (same shape as scanLibrary().converted[]), or null. */
 export async function getConverted(id) {
-  const root = await realRoot()
-  if (!UUID.test(id) || !(await isOutputDir(root, id))) return null
-  return describeOutput(root, id, new Map([...allJobs()].map((j) => [j.id, j])))
+  if (!UUID.test(id) || !(await isOutputDir(id))) return null
+  return describeOutput(id, new Map([...allJobs()].map((j) => [j.id, j])))
 }
 
 /**
@@ -180,7 +188,7 @@ export async function convertFolder(name, only) {
     throw new HttpError(404, `"${folder}" no longer exists in the downloads folder`)
   }
   if (!isInside(root, real) || real === root) throw new HttpError(403, 'Path is outside the downloads folder')
-  if (await isOutputDir(root, folder)) throw new HttpError(400, 'That is already a converted folder')
+  if (isConvertedFolderName(folder)) throw new HttpError(400, 'That is the folder of converted output')
 
   for (const job of allJobs()) {
     if (job.fromDisk && job.source === folder && ['uploading', 'processing'].includes(job.status)) {
@@ -206,7 +214,7 @@ export async function convertFolder(name, only) {
   const job = createJob({
     folderName: folder,
     files: videos.map((v) => ({ relativePath: v.relativePath, size: v.size })),
-    drama: pickDrama(drama),
+    drama: drama && typeof drama === 'object' && !Array.isArray(drama) ? drama : null,
     fromDisk: true,
   })
   try {

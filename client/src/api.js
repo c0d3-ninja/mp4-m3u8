@@ -80,7 +80,7 @@ export const folders = {
 /** Move the top-level MP4s of the downloads folder into a named folder. */
 export const move = {
   preview: () => request('GET', '/api/move'),
-  run: (folder, files, drama) => request('POST', '/api/move', { folder, files, ...drama }),
+  run: (drama, files) => request('POST', '/api/move', { drama, files }),
 }
 
 /** Folders in the server's downloads folder: MP4 folders to convert, converted folders to upload. */
@@ -91,6 +91,14 @@ export const library = {
     request('POST', `/api/library/${encodeURIComponent(id)}/upload`, { prefix, skipExisting }, r2Headers(settings)),
   cancelUpload: (id) => request('DELETE', `/api/library/${encodeURIComponent(id)}/upload`),
   verify: (id, settings) => request('GET', `/api/library/${encodeURIComponent(id)}/verify`, undefined, r2Headers(settings)),
+}
+
+/** Auto convert: every folder with a drama.json, one after another, paused on the first error. */
+export const auto = {
+  get: () => request('GET', '/api/auto'),
+  start: () => request('POST', '/api/auto/start'),
+  stop: () => request('POST', '/api/auto/stop'),
+  skip: (folder) => request('POST', '/api/auto/skip', { folder }),
 }
 
 export const r2 = {

@@ -33,10 +33,14 @@ export const config = {
 
   uploadsDir: path.join(root, 'storage', 'uploads'),
 
-  // Converted series are written to "<downloadsDir>/<uuid>/drama/", and this is the folder shown in the
+  // Converted series are written to "<downloadsDir>/converted/<uuid>/drama/" (convertedDir below), and this is the folder shown in the
   // "Folders" tab (browse + delete). Defaults to ~/Downloads of the user running the server.
   downloadsDir: path.resolve(expandHome(process.env.DOWNLOADS_DIR || '~/Downloads')),
 }
+
+// Every conversion's output folder lives in here: "<downloadsDir>/converted/<uuid>/"
+export const CONVERTED_FOLDER = 'converted'
+config.convertedDir = path.join(config.downloadsDir, CONVERTED_FOLDER)
 
 function expandHome(p) {
   return p === '~' || p.startsWith('~/') ? path.join(os.homedir(), p.slice(1)) : p

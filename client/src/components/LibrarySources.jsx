@@ -28,7 +28,7 @@ function conversionLabel(conversions) {
 }
 
 /** Convert tab: folders of videos in the server's downloads folder, converted in place on click. */
-export default function LibrarySources({ active, onStarted }) {
+export default function LibrarySources({ active, onStarted, refreshKey = 0 }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [starting, setStarting] = useState(null)
@@ -51,7 +51,7 @@ export default function LibrarySources({ active, onStarted }) {
   // Re-read whenever the Convert tab is shown, so labels are fresh after converting or moving files
   useEffect(() => {
     if (active) load()
-  }, [active, load])
+  }, [active, load, refreshKey])
 
   async function convert(src, label) {
     if (
@@ -101,7 +101,7 @@ export default function LibrarySources({ active, onStarted }) {
       {error && <p className="banner error">{error}</p>}
 
       {data && data.sources.length === 0 && (
-        <p className="muted">No folders with videos. Use the Move tab to put MP4s into a folder.</p>
+        <p className="muted">No folders with videos and a drama.json. Use the Move tab to put MP4s and the drama JSON into a folder.</p>
       )}
 
       {data && data.sources.length > 0 && (
@@ -118,9 +118,17 @@ export default function LibrarySources({ active, onStarted }) {
                     <span className={`chip ${label.tone}`}>{label.text}</span>
                   </div>
                   <span className="muted small">
-                    {src.videos} {src.videos === 1 ? 'video' : 'videos'} · {formatBytes(src.size)}
+                    {src.totalEpisodes ? (
+                      <span className={src.complete ? '' : 'warn-text'}>
+                        {src.videos}/{src.totalEpisodes} episodes{src.complete ? '' : ' (incomplete)'}
+                      </span>
+                    ) : (
+                      <span className="warn-text">
+                        {src.videos} {src.videos === 1 ? 'video' : 'videos'} (no totalEpisodes in drama.json)
+                      </span>
+                    )}{' '}
+                    · {formatBytes(src.size)}
                     {src.drama?.category && ` · ${src.drama.category}`}
-                    {src.drama ? '' : ' · no drama.json'}
                     {src.gaps.length > 0 && (
                       <span className="warn-text"> · missing episodes {formatGaps(src.gaps)}</span>
                     )}

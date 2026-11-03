@@ -1,15 +1,30 @@
 import { useCallback, useEffect, useState } from 'react'
 import { move } from '../api.js'
-import { folderSlug, formatBytes, formatGaps, gapCount, naturalCompare, storedCategory } from '../utils.js'
+import { folderSlug, formatBytes, formatGaps, gapCount, naturalCompare } from '../utils.js'
 
 const formatDate = (iso) => new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 
+const nameOf = (drama) =>
+  [drama?.app_dramaName, drama?.dramaName].find((v) => typeof v === 'string' && v.trim())?.trim() || ''
+
+/** The JSON field: { drama, error }. Empty -> both null. */
+function parseDrama(text) {
+  if (!text.trim()) return { drama: null, error: null }
+  try {
+    const drama = JSON.parse(text)
+    if (!drama || typeof drama !== 'object' || Array.isArray(drama))
+      return { drama: null, error: 'Must be a JSON object { … }' }
+    if (!nameOf(drama)) return { drama, error: 'Needs "app_dramaName" or "dramaName" (the folder is named after it)' }
+    return { drama, error: null }
+  } catch (e) {
+    return { drama: null, error: `Not valid JSON: ${e.message}` }
+  }
+}
+
 export default function MovePanel({ active = true, onOpenFolder }) {
   const [data, setData] = useState(null) // { root, files, folders }
-  const [folder, setFolder] = useState('')
-  // Starts with the last category written, so moving several dramas of one genre needs no retyping
-  const [category, setCategory] = useState(() => storedCategory.get())
-  const [imageUrl, setImageUrl] = useState('')
+  // drama.json content, pasted or filled by the browser extension's "Fill JSON" button (textarea#move-json)
+  const [json, setJson] = useState('')
   const [loading, setLoading] = useState(false)
   const [moving, setMoving] = useState(false)
   const [error, setError] = useState(null)
@@ -35,7 +50,8 @@ export default function MovePanel({ active = true, onOpenFolder }) {
     if (active) load()
   }, [active, load])
 
-  const name = folderSlug(folder) // the folder that will actually be created / used
+  const { drama, error: jsonError } = parseDrama(json)
+  const name = drama && !jsonError ? folderSlug(nameOf(drama)) : '' // the folder that will actually be created / used
   const invalid = /[\\/]/.test(name)
   const exists = Boolean(name) && data?.folders.includes(name)
   const files = data?.files || []
@@ -50,15 +66,11 @@ export default function MovePanel({ active = true, onOpenFolder }) {
     setResult(null)
     try {
       const done = await move.run(
-        name,
+        drama,
         files.map((f) => f.name),
-        { dramaName: folder.trim(), category: category.trim(), imageUrl: imageUrl.trim() },
       )
       setResult(done)
-      // Keep the category that went into drama.json in the field, and remember it across refreshes
-      const written = done.drama.category || ''
-      setCategory(written)
-      storedCategory.set(written)
+      setJson('')
       await load()
     } catch (err) {
       setError(err.message)
@@ -100,9 +112,9 @@ export default function MovePanel({ active = true, onOpenFolder }) {
             <span>
               Moved {result.moved.length} {result.moved.length === 1 ? 'file' : 'files'} into{' '}
               <strong>{result.folder}</strong>
-              {result.created ? ' (new folder)' : ''}. drama.json: {result.drama.dramaName}
-              {result.drama.category && ` · ${result.drama.category}`}
-              {result.drama.imageUrl ? ' · image URL set' : ' · no image URL'}.
+              {result.created ? ' (new folder)' : ''}. drama.json saved ({result.keys} fields):{' '}
+              {result.drama?.dramaName}
+              {result.drama?.category && ` · ${result.drama.category}`}.
             </span>
             {result.skipped.length > 0 && (
               <ul className="error-list">
@@ -122,61 +134,35 @@ export default function MovePanel({ active = true, onOpenFolder }) {
 
       <form className="form" onSubmit={run}>
         <label className="field">
-          <span>Folder name</span>
-          <input
-            type="text"
-            list="move-folders"
-            placeholder="e.g. My Drama"
-            value={folder}
-            onChange={(e) => setFolder(e.target.value)}
+          <span>Drama JSON (saved as drama.json)</span>
+          <textarea
+            id="move-json"
+            className="json-input"
+            rows={9}
+            placeholder={
+              '{\n  "dramaName": "…",\n  "app_dramaName": "…",\n  "category": ["…"],\n  "posterImageUrl": "https://…"\n}\n\nPaste it, or use the browser extension\'s "Fill JSON" button.'
+            }
+            value={json}
+            onChange={(e) => setJson(e.target.value)}
             disabled={moving}
+            spellCheck={false}
           />
-          <datalist id="move-folders">
-            {data?.folders.map((f) => (
-              <option key={f} value={f} />
-            ))}
-          </datalist>
-          {folder.trim() && (
-            <span className={`small ${invalid || !name ? 'error-text' : 'muted'}`}>
-              {!name
-                ? 'Enter a folder name with at least one letter or number.'
+          {json.trim() && (
+            <span className={`small ${jsonError || invalid ? 'error-text' : 'muted'}`}>
+              {jsonError
+                ? jsonError
                 : invalid
                   ? 'The folder name cannot contain "/" or "\\".'
                   : exists
-                    ? `"${name}" already exists. The files will be added to it; files with the same name are skipped.`
+                    ? `Folder "${name}" already exists. The files will be added to it (same names are skipped) and its drama.json updated.`
                     : `A new folder "${rootName}/${name}" will be created.`}
             </span>
           )}
         </label>
-
-        <div className="grid-2">
-          <label className="field">
-            <span>Category (optional)</span>
-            <input
-              type="text"
-              placeholder="e.g. Romance"
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              disabled={moving}
-              maxLength={100}
-            />
-          </label>
-          <label className="field">
-            <span>Image URL (optional)</span>
-            <input
-              type="text"
-              inputMode="url"
-              placeholder="https://example.com/poster.jpg"
-              value={imageUrl}
-              onChange={(e) => setImageUrl(e.target.value)}
-              disabled={moving}
-              spellCheck={false}
-            />
-          </label>
-        </div>
         <p className="muted small">
-          Saved as <strong>drama.json</strong> in the folder (drama name = what you typed above) and copied into the
-          converted folder when you convert it.{exists && ' Empty fields keep the values already in its drama.json.'}
+          The folder is named after <code>app_dramaName</code> (else <code>dramaName</code>). The whole JSON is saved as{' '}
+          <strong>drama.json</strong> in the folder and copied into the converted folder, with <code>cfId</code> set
+          to its UUID.
         </p>
 
         <div className="actions end">

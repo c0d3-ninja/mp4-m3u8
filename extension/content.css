@@ -71,3 +71,10 @@
 #dramas-json-card .dj-dl { background: #2a2a2a; color: #e8eaed; }
 #dramas-json-card .dj-dl:hover { background: #3a3a3a; }
 #dramas-json-card .dj-put:disabled { opacity: 0.5; cursor: default; }
+#dramas-json-card .dj-badge {
+  display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 999px;
+  background: #14532d; color: #86efac; font-size: 11px; font-weight: 600; white-space: nowrap;
+}
+#dramas-json-card .dj-badge[hidden] { display: none; }
+#dramas-json-card .dj-row.dj-done .dj-title { color: #9ca3af; }
+#dramas-json-card .dj-eps { display: block; margin-top: 2px; color: #9ca3af; font-size: 11px; font-weight: 500; }

@@ -40,7 +40,7 @@ router.get('/:id/verify', async (req, res) => {
   const connection = connectionFromRequest(req)
   const last = [...entry.uploads].reverse().find((u) => u.bucket === connection.bucket)
   const prefix = cleanPrefix(req.query.prefix || last?.prefix || entry.id)
-  const workDir = path.join(config.downloadsDir, entry.id)
+  const workDir = path.join(config.convertedDir, entry.id)
   const result = await verifyDirectory(connection, path.join(workDir, SERIES_DIR), prefix, {
     extraFiles: [{ relativePath: DRAMA_FILE, fullPath: path.join(workDir, DRAMA_FILE) }],
   })

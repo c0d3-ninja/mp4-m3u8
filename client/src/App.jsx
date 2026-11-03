@@ -9,6 +9,7 @@ import UploadPanel from './components/UploadPanel.jsx'
 import FoldersPanel from './components/FoldersPanel.jsx'
 import MovePanel from './components/MovePanel.jsx'
 import LibrarySources from './components/LibrarySources.jsx'
+import AutoConvert from './components/AutoConvert.jsx'
 import LibraryUploads from './components/LibraryUploads.jsx'
 import MissingEpisodes from './components/MissingEpisodes.jsx'
 
@@ -25,12 +26,14 @@ async function readDramaFile(file) {
     const data = JSON.parse(await file.text())
     if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('not an object')
     const pick = (k) => (typeof data[k] === 'string' && data[k].trim() ? data[k].trim() : null)
+    const category = Array.isArray(data.category) ? data.category.join(', ') : data.category
     return {
       status: 'ok',
-      info: {
-        dramaName: pick('dramaName'),
-        imageUrl: pick('imageUrl'),
-        category: pick('category'),
+      info: data, // sent as-is; the server copies every key into "<uuid>/drama.json"
+      summary: {
+        dramaName: pick('app_dramaName') || pick('dramaName'),
+        imageUrl: pick('imageUrl') || pick('posterImageUrl'),
+        category: typeof category === 'string' && category.trim() ? category.trim() : null,
       },
     }
   } catch {
@@ -44,11 +47,11 @@ function DramaInfo({ drama, folderName }) {
     return (
       <p className="banner warn">
         {drama.status === 'invalid' ? 'drama.json in this folder could not be read' : 'No drama.json in this folder'},
-        so drama.json will only have the drama name "{folderName}". Use the Move tab to add a category and image URL.
+        so drama.json will only have the drama name "{folderName}". Use the Move tab to add the drama JSON.
       </p>
     )
   }
-  const { dramaName, category, imageUrl } = drama.info
+  const { dramaName, category, imageUrl } = drama.summary
   return (
     <div className="banner info">
       <span>
@@ -71,7 +74,7 @@ function DramaInfo({ drama, folderName }) {
 export default function App() {
   const [selection, setSelection] = useState(null) // { folderName, items, totalFiles }
   const [selected, setSelected] = useState(() => new Set())
-  const [drama, setDrama] = useState(null) // { status: 'ok' | 'missing' | 'invalid', info?: { dramaName, imageUrl, category } }
+  const [drama, setDrama] = useState(null) // { status: 'ok' | 'missing' | 'invalid', info?: {...drama.json}, summary?: { dramaName, imageUrl, category } }
   const [job, setJob] = useState(null)
   const [uploads, setUploads] = useState({}) // fileId -> { progress, done, error }
   const [uploading, setUploading] = useState(false)
@@ -83,6 +86,8 @@ export default function App() {
   const [tab, setTab] = useState(() => storedTab.get())
   const [foldersStart, setFoldersStart] = useState('')
   const [libraryRefresh, setLibraryRefresh] = useState(0)
+  const [sourcesRefresh, setSourcesRefresh] = useState(0)
+  const refreshSources = useCallback(() => setSourcesRefresh((n) => n + 1), [])
   const [r2Settings, setR2Settings] = useState(() => r2Store.load())
 
   function switchTab(next) {
@@ -287,6 +292,15 @@ export default function App() {
     setJob(created)
   }
 
+  /** Show a server job (e.g. the one auto convert is running) in the job view. */
+  async function openJob(id) {
+    try {
+      startFromLibrary(await api.getJob(id))
+    } catch (e) {
+      setError(e.status === 404 ? 'That conversion is no longer on the server.' : e.message)
+    }
+  }
+
   async function cancelJob() {
     if (!window.confirm('Cancel this conversion? Episodes converted so far will be discarded.')) return
     uploadAbort.current?.abort()
@@ -393,9 +407,15 @@ export default function App() {
         )}
         {notice && <p className="banner info">{notice}</p>}
 
+        <AutoConvert active={tab === 'convert'} onOpenJob={openJob} onProgress={refreshSources} />
+
         {/* Stays mounted, hidden while a job or a picked folder is shown */}
         <div className="tab-panel" hidden={Boolean(job || selection)}>
-          <LibrarySources active={tab === 'convert' && !job && !selection} onStarted={startFromLibrary} />
+          <LibrarySources
+            active={tab === 'convert' && !job && !selection}
+            onStarted={startFromLibrary}
+            refreshKey={sourcesRefresh}
+          />
         </div>
 
         {job ? (
@@ -423,7 +443,7 @@ export default function App() {
                 <p className="eyebrow">Selected folder</p>
                 <h2>📁 {selection.folderName}</h2>
                 <p className="muted">
-                  Output: <strong>Downloads/&lt;uuid&gt;/drama/</strong>
+                  Output: <strong>Downloads/converted/&lt;uuid&gt;/drama/</strong>
                 </p>
               </div>
               <div className="actions">
@@ -464,7 +484,7 @@ export default function App() {
               <h2>Or pick a folder on this computer</h2>
               <p className="muted">
                 Every video inside is listed and selected. Each episode becomes a multi-quality HLS stream (1080p →
-                360p), and everything is saved on the server in <strong>Downloads/&lt;random uuid&gt;/drama/</strong>,
+                360p), and everything is saved on the server in <strong>Downloads/converted/&lt;random uuid&gt;/drama/</strong>,
                 with the folder name in drama.json.
               </p>
               <FolderPicker onSelect={handleFolder}>Choose folder</FolderPicker>

@@ -2,9 +2,10 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { Router } from 'express'
 import { config } from '../config.js'
-import { DRAMA_FILE, HttpError, cleanCategory, cleanDramaName, cleanImageUrl } from '../services/jobs.js'
+import { DRAMA_FILE, HttpError, cleanDramaJson, dramaSummary } from '../services/jobs.js'
 import { invalidateStats, isInside, realRoot } from '../services/downloads.js'
 import { episodeGaps } from '../services/episodes.js'
+import { isConvertedFolderName } from '../services/library.js'
 
 const router = Router()
 
@@ -18,7 +19,7 @@ async function scan(root) {
   await Promise.all(
     entries.map(async (e) => {
       if (e.isDirectory()) {
-        if (!e.name.startsWith('.')) folders.push(e.name)
+        if (!e.name.startsWith('.') && !isConvertedFolderName(e.name)) folders.push(e.name)
         return
       }
       if (!e.isFile() || !isMp4(e.name)) return
@@ -30,14 +31,17 @@ async function scan(root) {
 }
 
 /**
- * "  Love's  Story Vol.2 " -> "Loves-Story-Vol2": apostrophes and dots removed, each run of spaces -> one "-".
- * Keep in sync with folderSlug() in client/src/utils.js, which previews the same name.
+ * "  I Raised Two Sons, But One Betrayed Me! " -> "I-Raised-Two-Sons-But-One-Betrayed-Me": letters and numbers only,
+ * every other character removed, spaces -> "-". Keep in sync with folderSlug() in client/src/utils.js and
+ * folderSlug() in extension/background.js.
  */
 export function folderSlug(value) {
   return String(value ?? '')
-    .replace(/['\u2018\u2019.]/g, '')
+    .normalize('NFKC')
+    .replace(/[^\p{L}\p{N}\s-]+/gu, '') // drop every special character: ' . , ! ? : & ( ) …
     .trim()
-    .replace(/\s+/g, '-')
+    .replace(/[\s-]+/g, '-') // spaces (and runs of "-") -> one "-"
+    .replace(/^-+|-+$/g, '')
 }
 
 /** A single folder name: no slashes, nothing a file system would reject. */
@@ -70,10 +74,10 @@ router.get('/', async (req, res) => {
 })
 
 /**
- * Write "<folder>/drama.json" = { dramaName, imageUrl, category }. When the folder already has one (more episodes
- * added later), its drama name is kept and empty fields keep their old values, so nothing has to be re-entered.
+ * Write "<folder>/drama.json" = the pasted JSON. When the folder already has one (more episodes added later), keys
+ * that the new JSON doesn't have keep their old values.
  */
-async function writeDramaFile(dir, { dramaName, imageUrl, category }) {
+async function writeDramaFile(dir, drama) {
   const file = path.join(dir, DRAMA_FILE)
   let old = {}
   try {
@@ -82,27 +86,33 @@ async function writeDramaFile(dir, { dramaName, imageUrl, category }) {
   } catch {
     /* none yet, or unreadable: start fresh */
   }
-  const drama = {
-    dramaName: (typeof old.dramaName === 'string' && old.dramaName.trim()) || dramaName,
-    imageUrl: imageUrl ?? old.imageUrl ?? null,
-    category: category ?? old.category ?? null,
-  }
-  await fs.writeFile(file, `${JSON.stringify(drama, null, 2)}\n`)
-  return drama
+  const merged = { ...old, ...drama }
+  await fs.writeFile(file, `${JSON.stringify(merged, null, 2)}\n`)
+  return merged
 }
 
-// Move MP4s into a folder: POST /api/move { folder, dramaName?, category?, imageUrl?, files?: ["Episode 1.mp4", ...] }
-// `files` is the list the UI showed; when it's left out, every MP4 currently at the top level is moved.
-// `folder` is cleaned to e.g. "Loves-Story"; `dramaName` (what was typed, "Love's Story") goes into drama.json.
+/** Folder name for a drama.json: its app_dramaName, else dramaName. */
+const nameOf = (drama) =>
+  [drama?.app_dramaName, drama?.dramaName].find((v) => typeof v === 'string' && v.trim())?.trim() || ''
+
+// Move MP4s into a folder: POST /api/move { drama: {...drama.json}, folder?, files?: ["Episode 1.mp4", ...] }
+// `drama` is written as drama.json; the folder is named after its app_dramaName (else dramaName), cleaned to e.g.
+// "Loves-Story", unless `folder` is given. `files` is the list the UI showed; when it's left out, every MP4
+// currently at the top level is moved.
 router.post('/', async (req, res) => {
   const root = await realRoot()
-  const folder = cleanFolderName(req.body?.folder)
   // Validate everything before touching the disk
-  const info = {
-    dramaName: cleanDramaName(req.body?.dramaName) || folder,
-    imageUrl: cleanImageUrl(req.body?.imageUrl),
-    category: cleanCategory(req.body?.category),
+  if (!req.body?.drama || typeof req.body.drama !== 'object' || Array.isArray(req.body.drama)) {
+    throw new HttpError(400, 'Paste the drama JSON (an object with app_dramaName or dramaName)')
   }
+  if (!req.body?.folder && !nameOf(req.body.drama)) {
+    throw new HttpError(400, 'The drama JSON needs "app_dramaName" or "dramaName" (the folder is named after it)')
+  }
+  const folder = cleanFolderName(req.body?.folder || nameOf(req.body.drama))
+  if (isConvertedFolderName(folder)) {
+    throw new HttpError(400, `"${folder}" is where converted output goes; give the drama another folder name`)
+  }
+  const info = cleanDramaJson(req.body.drama, nameOf(req.body.drama) || folder)
   const { files: current } = await scan(root)
   const available = new Set(current.map((f) => f.name))
 
@@ -144,7 +154,7 @@ router.post('/', async (req, res) => {
 
   const drama = await writeDramaFile(target, info)
   invalidateStats()
-  res.json({ folder, created, moved, skipped, drama })
+  res.json({ folder, created, moved, skipped, drama: dramaSummary(drama), keys: Object.keys(drama).length })
 })
 
 export default router
