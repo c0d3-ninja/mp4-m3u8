@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { folders } from '../api.js'
 import { formatBytes, naturalCompare } from '../utils.js'
+import MissingEpisodes from './MissingEpisodes.jsx'
 
 const ICONS = { dir: '📁', file: '📄', link: '🔗' }
 
@@ -112,6 +113,7 @@ export default function FoldersPanel({ active = true, initialPath = '' }) {
         </p>
       )}
       {notice && <p className="banner success">{notice}</p>}
+      <MissingEpisodes gaps={data?.gaps}>not in this folder</MissingEpisodes>
 
       <nav className="crumbs" aria-label="Path">
         <button type="button" disabled={parts.length === 0} onClick={() => open('')}>
@@ -175,6 +177,7 @@ export default function FoldersPanel({ active = true, initialPath = '' }) {
                       {entry.type === 'dir' && (
                         <span className="muted meta">
                           {entry.items} {entry.items === 1 ? 'item' : 'items'}
+                          <MissingEpisodes gaps={entry.gaps} inline />
                         </span>
                       )}
                       <span className="muted meta date">{formatDate(entry.modified)}</span>

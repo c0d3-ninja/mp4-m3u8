@@ -99,6 +99,12 @@ uploads straight from the server's output folder.
   is sent from the browser, and that stops if you leave the page; after 10 minutes without the page, the server
   converts the episodes that did arrive.
 - Switching tabs keeps everything: all tabs stay loaded and are only hidden, and each re-reads the server when shown.
+- **Missing episodes** are flagged everywhere (Move, Convert and Upload lists): the last number in each file name is the
+  episode number, so `EP01–EP05, EP16–EP60` shows "missing episodes 6–15". Usually a download that didn't finish.
+- **Every upload is verified:** when it finishes, the server lists the bucket and checks that every local file
+  (`drama/…`, `manifest.json`, `drama.json`) is there with the same size. Only then is it marked **Uploaded ✓**;
+  otherwise it fails with the missing files and **Retry** sends just those. **Verify** re-checks any upload, including
+  ones made before this check existed ("Uploaded (not verified)").
 - Each `<uuid>/` has a hidden `.job.json` with the source folder, status and finished uploads; uploads skip hidden
   files, so it never reaches the bucket. Recorded uploads are checked against the bucket's folders, so a folder
   deleted from the bucket shows as not uploaded again.
@@ -142,7 +148,7 @@ including everything inside it, or a single file.
 |---|---|---|
 | `FFMPEG_PRESET` | `veryfast` | x264 speed vs. quality (`faster`, `medium` = smaller/better but slower) |
 | `HLS_SEGMENT_SECONDS` | `4` | Segment length |
-| `CONCURRENCY` | `2` | Episodes converted at the same time, across all conversions |
+| `CONCURRENCY` | `1` | Episodes converted at the same time, across all conversions |
 | `FFMPEG_PATH` / `FFPROBE_PATH` | on `PATH` | Custom ffmpeg location |
 | `DOWNLOADS_DIR` | `~/Downloads` | Folder shown in the Folders tab |
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { library, r2 } from '../api.js'
 import {
   cleanPrefix,
+  episodeGaps,
   formatBytes,
   isR2Configured,
   percent,
@@ -10,6 +11,7 @@ import {
   uploadRank,
 } from '../utils.js'
 import FolderPicker from './FolderPicker.jsx'
+import MissingEpisodes from './MissingEpisodes.jsx'
 
 const CONCURRENCY = 6
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -290,6 +292,17 @@ export default function UploadPanel({ settings, onPreview, onServerUpload }) {
         </div>
 
         {error && <p className="banner error">{error}</p>}
+        {folder && (
+          <MissingEpisodes
+            gaps={episodeGaps(
+              folder.files
+                .filter((f) => f.relativePath.endsWith('/master.m3u8'))
+                .map((f) => f.relativePath.split('/').slice(-2, -1)[0]),
+            )}
+          >
+            not in this converted series
+          </MissingEpisodes>
+        )}
 
         {folder && folder.episodes === 0 && (
           <p className="banner warn">

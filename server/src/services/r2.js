@@ -241,6 +241,42 @@ export async function walkFiles(dir) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
+/** Local files of an upload: everything under `dir` plus `extraFiles` (e.g. drama.json next to it). */
+async function localFiles(dir, extraFiles = []) {
+  const files = await walkFiles(dir)
+  // Files from outside `dir` uploaded next to it, e.g. "<uuid>/drama.json" -> "<prefix>/drama.json"
+  for (const extra of extraFiles) {
+    const st = await fsp.stat(extra.fullPath).catch(() => null)
+    if (st?.isFile()) files.push({ ...extra, size: st.size })
+  }
+  return files
+}
+
+/**
+ * Compare the local files with what is really in the bucket under `prefix/` (name and size).
+ * Returns { total, ok, missing: [path], wrongSize: [path], checkedAt }.
+ */
+export async function verifyFiles(connection, files, prefix) {
+  const inBucket = await listExisting(connection, prefix)
+  const missing = []
+  const wrongSize = []
+  for (const f of files) {
+    if (!(f.relativePath in inBucket)) missing.push(f.relativePath)
+    else if (inBucket[f.relativePath] !== f.size) wrongSize.push(f.relativePath)
+  }
+  return {
+    total: files.length,
+    ok: missing.length === 0 && wrongSize.length === 0,
+    missing: missing.sort(),
+    wrongSize: wrongSize.sort(),
+    checkedAt: new Date().toISOString(),
+  }
+}
+
+export async function verifyDirectory(connection, dir, prefix, { extraFiles = [] } = {}) {
+  return verifyFiles(connection, await localFiles(dir, extraFiles), prefix)
+}
+
 /**
  * Upload order: segments and variant playlists first, then each episode's master.m3u8,
  * then manifest.json last, so an interrupted upload never publishes links to missing files.
@@ -263,12 +299,7 @@ export async function uploadDirectory(
   state,
   { signal, skipExisting = true, concurrency = 8, extraFiles = [] } = {},
 ) {
-  const files = await walkFiles(dir)
-  // Files from outside `dir` uploaded next to it, e.g. "<uuid>/drama.json" -> "<prefix>/drama.json"
-  for (const extra of extraFiles) {
-    const st = await fsp.stat(extra.fullPath).catch(() => null)
-    if (st?.isFile()) files.push({ ...extra, size: st.size })
-  }
+  const files = await localFiles(dir, extraFiles)
   state.total = files.length
   state.totalBytes = files.reduce((s, f) => s + f.size, 0)
 
@@ -318,5 +349,19 @@ export async function uploadDirectory(
     }
     await Promise.all(Array.from({ length: Math.min(concurrency, queue.length) }, worker))
     if (signal?.aborted || state.fatal || state.failed > 0) break
+  }
+
+  // Only call it uploaded once the bucket really holds every file with the right size
+  if (!signal?.aborted && !state.fatal && state.failed === 0) {
+    state.verifying = true
+    const check = await verifyFiles(connection, files, prefix)
+    state.verifying = false
+    state.verify = { ...check, missing: check.missing.slice(0, 50), wrongSize: check.wrongSize.slice(0, 50) }
+    const bad = [...check.missing, ...check.wrongSize]
+    if (bad.length > 0) {
+      state.failed += bad.length
+      state.fatal = `${bad.length} of ${check.total} files are not in the bucket (or have the wrong size) after uploading. Click Retry.`
+      for (const file of bad.slice(0, 20 - state.errors.length)) state.errors.push({ file, error: 'Not in bucket after upload' })
+    }
   }
 }

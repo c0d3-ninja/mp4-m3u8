@@ -34,13 +34,24 @@ export function updateMarker(dir, change) {
   return done
 }
 
-/** Remember a finished Cloudflare upload (one entry per bucket + prefix, newest wins). */
-export function recordUpload(dir, { bucket, prefix }) {
+/**
+ * Remember a finished, verified Cloudflare upload (one entry per bucket + prefix, newest wins).
+ * `files` is how many files were confirmed in the bucket.
+ */
+export function recordUpload(dir, { bucket, prefix, files }) {
   return updateMarker(dir, (m) => ({
     ...m,
     uploads: [
       ...(Array.isArray(m.uploads) ? m.uploads : []).filter((u) => !(u.bucket === bucket && u.prefix === prefix)),
-      { bucket, prefix, at: new Date().toISOString() },
+      { bucket, prefix, at: new Date().toISOString(), verified: true, files: files ?? null },
     ],
+  }))
+}
+
+/** Forget an upload record, e.g. when Verify finds files missing from the bucket. */
+export function forgetUpload(dir, { bucket, prefix }) {
+  return updateMarker(dir, (m) => ({
+    ...m,
+    uploads: (Array.isArray(m.uploads) ? m.uploads : []).filter((u) => !(u.bucket === bucket && u.prefix === prefix)),
   }))
 }

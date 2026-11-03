@@ -1,6 +1,9 @@
 import { Router } from 'express'
-import { cleanPrefix, connectionFromRequest, uploadDirectory } from '../services/r2.js'
-import { HttpError, cancelFolderUpload, startFolderUpload } from '../services/jobs.js'
+import path from 'node:path'
+import { config } from '../config.js'
+import { cleanPrefix, connectionFromRequest, uploadDirectory, verifyDirectory } from '../services/r2.js'
+import { DRAMA_FILE, HttpError, SERIES_DIR, cancelFolderUpload, startFolderUpload } from '../services/jobs.js'
+import { forgetUpload, recordUpload } from '../services/marker.js'
 import { convertFolder, getConverted, scanLibrary } from '../services/library.js'
 
 const router = Router()
@@ -27,6 +30,24 @@ router.post('/:id/upload', async (req, res) => {
     skipExisting: req.body?.skipExisting !== false,
   })
   res.json({ id: entry.id, r2 })
+})
+
+// Check that the bucket really holds every local file (name + size): GET /api/library/:id/verify?prefix=
+// The prefix defaults to where this folder was last uploaded in this bucket, else the id.
+router.get('/:id/verify', async (req, res) => {
+  const entry = await getConverted(req.params.id)
+  if (!entry) throw new HttpError(404, 'Converted folder not found')
+  const connection = connectionFromRequest(req)
+  const last = [...entry.uploads].reverse().find((u) => u.bucket === connection.bucket)
+  const prefix = cleanPrefix(req.query.prefix || last?.prefix || entry.id)
+  const workDir = path.join(config.downloadsDir, entry.id)
+  const result = await verifyDirectory(connection, path.join(workDir, SERIES_DIR), prefix, {
+    extraFiles: [{ relativePath: DRAMA_FILE, fullPath: path.join(workDir, DRAMA_FILE) }],
+  })
+  // A complete bucket copy counts as uploaded (also for uploads made before verification existed)
+  if (result.ok) await recordUpload(workDir, { bucket: connection.bucket, prefix, files: result.total })
+  else await forgetUpload(workDir, { bucket: connection.bucket, prefix })
+  res.json({ id: entry.id, bucket: connection.bucket, prefix, ...result, missing: result.missing.slice(0, 200) })
 })
 
 router.delete('/:id/upload', (req, res) => {

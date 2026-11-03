@@ -1,5 +1,6 @@
-import { formatBytes, formatDuration, hlsUrl, percent } from '../utils.js'
+import { episodeGaps, formatBytes, formatDuration, hlsUrl, percent } from '../utils.js'
 import CloudflarePush from './CloudflarePush.jsx'
+import MissingEpisodes from './MissingEpisodes.jsx'
 
 /** Combine server state with local upload progress into one row state. */
 function rowState(file, upload, uploadsComplete) {
@@ -100,6 +101,10 @@ export default function JobView({
           </span>
         </p>
       )}
+
+      <MissingEpisodes gaps={episodeGaps(job.files.map((f) => f.relativePath))}>
+        not in the source folder, so this series won't have them
+      </MissingEpisodes>
 
       {job.status === 'failed' && job.error && <p className="banner error">{job.error}</p>}
 

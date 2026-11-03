@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { move } from '../api.js'
-import { folderSlug, formatBytes, naturalCompare, storedCategory } from '../utils.js'
+import { folderSlug, formatBytes, formatGaps, gapCount, naturalCompare, storedCategory } from '../utils.js'
 
 const formatDate = (iso) => new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 
@@ -189,6 +189,13 @@ export default function MovePanel({ active = true, onOpenFolder }) {
           </button>
         </div>
       </form>
+
+      {data?.gaps?.length > 0 && (
+        <p className="banner warn">
+          Missing {gapCount(data.gaps) === 1 ? 'episode' : 'episodes'} {formatGaps(data.gaps)}: those files are not in
+          the downloads folder. Check that they finished downloading before moving.
+        </p>
+      )}
 
       {data && (
         <div className="list">

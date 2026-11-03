@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { library, r2 as r2Api } from '../api.js'
-import { formatBytes, isR2Configured, percent } from '../utils.js'
+import { formatBytes, formatGaps, gapCount, isR2Configured, percent } from '../utils.js'
 
 const formatDate = (iso) =>
   iso
@@ -18,18 +18,19 @@ function uploadLabel(item, bucket, series) {
   if (item.r2?.status === 'uploading') return { tone: 'active', text: 'Uploading…', busy: true }
   const inBucket = (prefix) => !series || series.includes(prefix.split('/')[0])
   const rec = [...item.uploads].reverse().find((u) => u.bucket === bucket && inBucket(u.prefix))
+  // Records made since verification existed say how many files were confirmed in the bucket
   if (rec)
     return {
       tone: 'done',
-      text: 'Uploaded',
-      detail: `${bucket}/${rec.prefix}/ · ${formatDate(rec.at)}`,
+      text: rec.verified ? 'Uploaded ✓' : 'Uploaded (not verified)',
+      detail: `${bucket}/${rec.prefix}/${rec.files ? ` · ${rec.files} files checked` : ''} · ${formatDate(rec.at)}`,
       uploaded: true,
     }
   // Uploaded from the local-folder form below, which can't record it: the bucket has a folder named after it
   if (series?.includes(item.id))
     return {
       tone: 'done',
-      text: 'Uploaded',
+      text: 'Uploaded (not verified)',
       detail: `${bucket}/${item.id}/`,
       uploaded: true,
     }
@@ -52,6 +53,7 @@ export default function LibraryUploads({ active, settings, refreshKey = 0 }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(null)
+  const [checks, setChecks] = useState({}) // id -> Verify result, or { checking: true } / { error }
 
   const load = useCallback(
     async ({ withBucket = true } = {}) => {
@@ -115,6 +117,18 @@ export default function LibraryUploads({ active, settings, refreshKey = 0 }) {
     }
   }
 
+  /** Compare every local file (drama/ + drama.json) with the bucket. */
+  async function verify(item) {
+    setChecks((c) => ({ ...c, [item.id]: { checking: true } }))
+    try {
+      const result = await library.verify(item.id, settings)
+      setChecks((c) => ({ ...c, [item.id]: result }))
+      await load({ withBucket: false }) // the upload record is added / removed by the check
+    } catch (e) {
+      setChecks((c) => ({ ...c, [item.id]: { error: e.message } }))
+    }
+  }
+
   async function cancel(item) {
     try {
       await library.cancelUpload(item.id)
@@ -173,6 +187,13 @@ export default function LibraryUploads({ active, settings, refreshKey = 0 }) {
                     {item.drama?.category && ` · ${item.drama.category}`}
                     {!status && label.detail && ` · ${label.detail}`}
                   </span>
+                  {item.gaps?.length > 0 && (
+                    <span className="warn-text small">
+                      Missing {gapCount(item.gaps) === 1 ? 'episode' : 'episodes'} {formatGaps(item.gaps)} (not in the
+                      source folder when it was converted)
+                    </span>
+                  )}
+                  <VerifyResult check={checks[item.id]} />
                   {uploading && (
                     <>
                       <div className="bar">
@@ -189,6 +210,16 @@ export default function LibraryUploads({ active, settings, refreshKey = 0 }) {
                     <span className="error-text small">{r.fatal || `${r.errors[0].file}: ${r.errors[0].error}`}</span>
                   )}
                 </div>
+                {!uploading && label.uploaded && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    disabled={!configured || checks[item.id]?.checking}
+                    onClick={() => verify(item)}
+                  >
+                    {checks[item.id]?.checking ? 'Checking…' : 'Verify'}
+                  </button>
+                )}
                 {uploading ? (
                   <button type="button" className="btn btn-ghost btn-sm" onClick={() => cancel(item)}>
                     Cancel
@@ -215,5 +246,27 @@ export default function LibraryUploads({ active, settings, refreshKey = 0 }) {
         </ul>
       )}
     </section>
+  )
+}
+
+/** Result of Verify: every local file vs the bucket. */
+function VerifyResult({ check }) {
+  if (!check || check.checking) return null
+  if (check.error) return <span className="error-text small">Could not verify: {check.error}</span>
+  if (check.ok) {
+    return (
+      <span className="small" style={{ color: 'var(--ok)' }}>
+        ✓ All {check.total} files (episodes, manifest.json, drama.json) are in {check.bucket}/{check.prefix}/ with the
+        right size.
+      </span>
+    )
+  }
+  const bad = [...check.missing, ...check.wrongSize]
+  return (
+    <span className="error-text small">
+      {check.missing.length} missing{check.wrongSize.length > 0 && `, ${check.wrongSize.length} wrong size`} of{' '}
+      {check.total} files in {check.bucket}/{check.prefix}/: {bad.slice(0, 5).join(', ')}
+      {bad.length > 5 && ` and ${bad.length - 5} more`}. Click Upload to send what's missing.
+    </span>
   )
 }

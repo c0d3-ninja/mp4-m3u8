@@ -90,6 +90,7 @@ export const library = {
   upload: (id, settings, { prefix, skipExisting } = {}) =>
     request('POST', `/api/library/${encodeURIComponent(id)}/upload`, { prefix, skipExisting }, r2Headers(settings)),
   cancelUpload: (id) => request('DELETE', `/api/library/${encodeURIComponent(id)}/upload`),
+  verify: (id, settings) => request('GET', `/api/library/${encodeURIComponent(id)}/verify`, undefined, r2Headers(settings)),
 }
 
 export const r2 = {

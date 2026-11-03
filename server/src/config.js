@@ -26,8 +26,8 @@ export const config = {
   ffmpegPreset: process.env.FFMPEG_PRESET || 'veryfast',
   // Target HLS segment length in seconds
   hlsSegmentSeconds: positiveNumber(process.env.HLS_SEGMENT_SECONDS, 4),
-  // How many episodes are transcoded at the same time, across all jobs (default 2)
-  concurrency: Math.floor(positiveNumber(process.env.CONCURRENCY, 2)),
+  // How many episodes are transcoded at the same time, across all jobs (default 1: ffmpeg already uses every core)
+  concurrency: Math.floor(positiveNumber(process.env.CONCURRENCY, 1)),
 
   uploadsDir: path.join(root, 'storage', 'uploads'),
 

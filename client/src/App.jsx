@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { api, library } from './api.js'
-import { formatBytes, r2Store, readFolderSelection, storedJobId, storedTab } from './utils.js'
+import { episodeGaps, formatBytes, r2Store, readFolderSelection, storedJobId, storedTab } from './utils.js'
 import FolderPicker from './components/FolderPicker.jsx'
 import FileList from './components/FileList.jsx'
 import JobView from './components/JobView.jsx'
@@ -10,6 +10,7 @@ import FoldersPanel from './components/FoldersPanel.jsx'
 import MovePanel from './components/MovePanel.jsx'
 import LibrarySources from './components/LibrarySources.jsx'
 import LibraryUploads from './components/LibraryUploads.jsx'
+import MissingEpisodes from './components/MissingEpisodes.jsx'
 
 // hls.js is large, so the player is only loaded when a preview is opened
 const PreviewModal = lazy(() => import('./components/PreviewModal.jsx'))
@@ -433,6 +434,10 @@ export default function App() {
             </div>
 
             <DramaInfo drama={drama} folderName={selection.folderName} />
+
+            <MissingEpisodes gaps={episodeGaps(selection.items.map((i) => i.relativePath))}>
+              not in this folder. Check that they finished downloading.
+            </MissingEpisodes>
 
             <FileList items={selection.items} selected={selected} onToggle={toggle} onToggleAll={toggleAll} />
 

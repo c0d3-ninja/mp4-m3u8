@@ -4,6 +4,7 @@ import { config } from '../config.js'
 import { folderStats, isInside, realRoot } from './downloads.js'
 import { fsLimit } from './limit.js'
 import { readMarker } from './marker.js'
+import { episodeGaps } from './episodes.js'
 import {
   DRAMA_FILE,
   HttpError,
@@ -94,6 +95,8 @@ async function describeOutput(root, name, liveJobs) {
     status,
     progress: job ? job.files.filter((f) => ['done', 'error'].includes(f.status)).length / job.files.length : null,
     episodes: manifest?.episodeCount ?? marker?.episodes ?? null,
+    // Episode numbers missing from the series (e.g. never downloaded): [[6, 15]]
+    gaps: Array.isArray(manifest?.episodes) ? episodeGaps(manifest.episodes.map((e) => e.source || e.title || '')) : [],
     size: stats.size,
     createdAt: marker?.createdAt || null,
     completedAt: marker?.completedAt || manifest?.createdAt || null,
@@ -113,6 +116,7 @@ async function describeSource(root, name) {
     name,
     videos: videos.length,
     size: videos.reduce((s, v) => s + v.size, 0),
+    gaps: episodeGaps(videos.map((v) => v.relativePath)),
     modified: st.mtime.toISOString(),
     drama: pickDrama(drama),
   }

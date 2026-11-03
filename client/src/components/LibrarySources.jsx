@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { library } from '../api.js'
-import { formatBytes, naturalCompare } from '../utils.js'
+import { formatBytes, formatGaps, gapCount, naturalCompare } from '../utils.js'
 
 const formatDate = (iso) =>
   iso
@@ -54,6 +54,14 @@ export default function LibrarySources({ active, onStarted }) {
   }, [active, load])
 
   async function convert(src, label) {
+    if (
+      src.gaps.length > 0 &&
+      !window.confirm(
+        `"${src.name}" is missing ${gapCount(src.gaps) === 1 ? 'episode' : 'episodes'} ${formatGaps(src.gaps)}. Convert the ${src.videos} it has anyway?`,
+      )
+    ) {
+      return
+    }
     if (
       label.converted &&
       !window.confirm(`"${src.name}" was already converted. Convert it again into a new folder?`)
@@ -113,6 +121,9 @@ export default function LibrarySources({ active, onStarted }) {
                     {src.videos} {src.videos === 1 ? 'video' : 'videos'} · {formatBytes(src.size)}
                     {src.drama?.category && ` · ${src.drama.category}`}
                     {src.drama ? '' : ' · no drama.json'}
+                    {src.gaps.length > 0 && (
+                      <span className="warn-text"> · missing episodes {formatGaps(src.gaps)}</span>
+                    )}
                     {label.detail && ` · last converted: ${label.detail}`}
                   </span>
                 </div>

@@ -255,6 +255,41 @@ export const storedCategory = {
   },
 }
 
+/**
+ * Missing episode numbers from file or folder names ("EP01.mp4", "Episode 7", "S1/E12.mp4"): the episode number is the
+ * last number in the name. Returns ranges like [[6, 15]]; [] when nothing is missing or the names don't look like a
+ * numbered series. Same logic as server/src/services/episodes.js.
+ */
+export function episodeGaps(names) {
+  const numbers = []
+  for (const name of names) {
+    const base = String(name).split('/').pop().replace(/\.[^.]+$/, '')
+    const match = base.match(/(\d+)(?!.*\d)/)
+    if (match) numbers.push(Number(match[1]))
+  }
+  if (numbers.length < 2 || new Set(numbers).size !== numbers.length) return []
+  const have = new Set(numbers)
+  const max = Math.max(...numbers)
+  // More numbers missing than present: the numbers aren't episode numbers (a year, an id…), so don't guess
+  if (max - numbers.length > numbers.length) return []
+  const gaps = []
+  for (let n = 1; n <= max; n++) {
+    if (have.has(n)) continue
+    const last = gaps[gaps.length - 1]
+    if (last && last[1] === n - 1) last[1] = n
+    else gaps.push([n, n])
+  }
+  return gaps
+}
+
+/** [[6, 15], [20, 20]] -> "6–15, 20" (missing episode numbers from the server). */
+export function formatGaps(gaps) {
+  return (gaps || []).map(([a, b]) => (a === b ? `${a}` : `${a}–${b}`)).join(', ')
+}
+
+/** How many episodes the gaps cover: [[6, 15]] -> 10 */
+export const gapCount = (gaps) => (gaps || []).reduce((n, [a, b]) => n + b - a + 1, 0)
+
 const TAB_KEY = 'mp4-m3u8:tab'
 export const storedTab = {
   get() {

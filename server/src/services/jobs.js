@@ -461,7 +461,8 @@ function runR2Upload(target, connection, prefix, uploadDirectory, { skipExisting
     () => {
       if (controller.signal.aborted) state.status = 'cancelled'
       else state.status = state.failed > 0 || state.fatal ? 'failed' : 'done'
-      if (state.status === 'done') recordUpload(target.workDir, { bucket: state.bucket, prefix })
+      // uploadDirectory only finishes without failures once every file was found in the bucket
+      if (state.status === 'done') recordUpload(target.workDir, { bucket: state.bucket, prefix, files: state.verify?.total })
     },
     (err) => {
       state.status = controller.signal.aborted ? 'cancelled' : 'failed'

@@ -2,10 +2,30 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { Router } from 'express'
 import { config } from '../config.js'
-import { HttpError, busyJobIds } from '../services/jobs.js'
+import { HttpError, SERIES_DIR, VIDEO_EXTENSIONS, busyJobIds } from '../services/jobs.js'
+import { episodeGaps } from '../services/episodes.js'
 import { folderStats, invalidateStats, isInside, resolveInRoot } from '../services/downloads.js'
 
 const router = Router()
+
+/**
+ * Missing episodes of a series folder: from its videos (a folder of MP4s), or from the manifest of converted output
+ * ("<uuid>/drama/manifest.json", or "manifest.json" when inside drama/). [] when it isn't a series.
+ */
+async function seriesGaps(dir, names) {
+  const list = names ?? (await fs.readdir(dir).catch(() => []))
+  const videos = list.filter((n) => !n.startsWith('.') && VIDEO_EXTENSIONS.includes(path.extname(n).toLowerCase()))
+  if (videos.length >= 2) return episodeGaps(videos)
+  for (const manifest of [path.join(dir, 'manifest.json'), path.join(dir, SERIES_DIR, 'manifest.json')]) {
+    try {
+      const data = JSON.parse(await fs.readFile(manifest, 'utf8'))
+      if (Array.isArray(data?.episodes)) return episodeGaps(data.episodes.map((e) => e.source || e.title || ''))
+    } catch {
+      /* not there */
+    }
+  }
+  return []
+}
 
 async function describe(dir, name) {
   const p = path.join(dir, name)
@@ -17,7 +37,10 @@ async function describe(dir, name) {
   }
   const base = { name, modified: st.mtime.toISOString() }
   if (st.isSymbolicLink()) return { ...base, type: 'link', size: 0 }
-  if (st.isDirectory()) return { ...base, type: 'dir', ...(await folderStats(p)) }
+  if (st.isDirectory()) {
+    const [stats, gaps] = await Promise.all([folderStats(p), seriesGaps(p)])
+    return { ...base, type: 'dir', ...stats, gaps }
+  }
   return { ...base, type: 'file', size: st.size }
 }
 
@@ -44,12 +67,13 @@ router.get('/', async (req, res) => {
   if (!(await fs.stat(real)).isDirectory()) throw new HttpError(400, 'Not a folder')
 
   const names = await fs.readdir(real)
-  const [entries, disk] = await Promise.all([
+  const [entries, disk, gaps] = await Promise.all([
     Promise.all(names.map((n) => describe(real, n))),
     diskSpace(root),
+    parts.length > 0 ? seriesGaps(real, names) : [], // the downloads folder itself isn't a series
   ])
 
-  res.json({ root: config.downloadsDir, path: parts.join('/'), entries: entries.filter(Boolean), disk })
+  res.json({ root: config.downloadsDir, path: parts.join('/'), entries: entries.filter(Boolean), disk, gaps })
 })
 
 // Delete a folder (recursively) or a file: DELETE /api/folders?path=My%20Drama

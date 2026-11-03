@@ -4,6 +4,7 @@ import { Router } from 'express'
 import { config } from '../config.js'
 import { DRAMA_FILE, HttpError, cleanCategory, cleanDramaName, cleanImageUrl } from '../services/jobs.js'
 import { invalidateStats, isInside, realRoot } from '../services/downloads.js'
+import { episodeGaps } from '../services/episodes.js'
 
 const router = Router()
 
@@ -64,7 +65,8 @@ async function moveFile(from, to) {
 // Files that would be moved: GET /api/move
 router.get('/', async (req, res) => {
   const root = await realRoot()
-  res.json({ root: config.downloadsDir, ...(await scan(root)) })
+  const listing = await scan(root)
+  res.json({ root: config.downloadsDir, ...listing, gaps: episodeGaps(listing.files.map((f) => f.name)) })
 })
 
 /**
