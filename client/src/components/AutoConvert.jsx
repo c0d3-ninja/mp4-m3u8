@@ -74,8 +74,8 @@ export default function AutoConvert({ active, encoder, parallel, onOpenJob, onPr
           </h2>
           <p className="muted small">
             Converts every folder with a <strong>drama.json</strong>, one after another, in the order below — only when
-            all its episodes are there (as many videos as <code>totalEpisodes</code>) and their first frames are cut.
-            Stops on the first error, incomplete or uncut folder. Keeps going if you leave this page.
+            all its episodes are there (as many videos as <code>totalEpisodes</code>). Stops on the first error or
+            incomplete folder. Keeps going if you leave this page.
           </p>
         </div>
         <div className="actions">

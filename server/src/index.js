@@ -11,7 +11,6 @@ import foldersRouter from './routes/folders.js'
 import moveRouter from './routes/move.js'
 import libraryRouter from './routes/library.js'
 import autoRouter from './routes/auto.js'
-import cutRouter from './routes/cut.js'
 import { getJob, prepareStorage } from './services/jobs.js'
 import { describeCpuLimit } from './services/cpu.js'
 
@@ -51,7 +50,6 @@ app.use('/api/folders', foldersRouter)
 app.use('/api/move', moveRouter)
 app.use('/api/library', libraryRouter)
 app.use('/api/auto', autoRouter)
-app.use('/api/cut', cutRouter)
 
 app.use('/api', (req, res) => {
   res.status(404).json({ error: 'Not found' })

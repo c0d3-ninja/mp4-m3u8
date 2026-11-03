@@ -2,7 +2,6 @@ import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { CONVERTED_FOLDER, config } from '../config.js'
 import { findVideos, folderStats, isInside, realRoot } from './downloads.js'
-import { isCutBusy, isCutFile, readCutMarker } from './cutFrames.js'
 import { fsLimit } from './limit.js'
 import { readMarker } from './marker.js'
 import { episodeGaps } from './episodes.js'
@@ -89,11 +88,10 @@ async function describeOutput(name, liveJobs) {
 
 async function describeSource(root, name) {
   const dir = path.join(root, name)
-  const [videos, drama, st, cutMarker] = await Promise.all([
+  const [videos, drama, st] = await Promise.all([
     findVideos(dir),
     readJson(path.join(dir, DRAMA_FILE)),
     fsp.stat(dir),
-    readCutMarker(dir),
   ])
   // Episode count from drama.json ("totalEpisodes", saved by the extension); null when missing or not a number
   const total = Number(drama?.totalEpisodes)
@@ -102,9 +100,6 @@ async function describeSource(root, name) {
   return {
     name,
     videos: videos.length,
-    // Videos whose first frames were already cut (Cut frames tab)
-    framesCut: videos.filter((v) => isCutFile(cutMarker, v)).length,
-    cutting: isCutBusy(name),
     totalEpisodes,
     // Every episode is there: as many videos as drama.json says, and no episode number missing
     complete: totalEpisodes !== null && videos.length === totalEpisodes && gaps.length === 0,
@@ -176,7 +171,6 @@ export async function convertFolder(name, only, encoder, parallel) {
   if (!isInside(root, real) || real === root) throw new HttpError(403, 'Path is outside the downloads folder')
   if (isConvertedFolderName(folder)) throw new HttpError(400, 'That is the folder of converted output')
 
-  if (isCutBusy(folder)) throw new HttpError(409, `"${folder}" is still having its first frames cut`)
   for (const job of allJobs()) {
     if (job.fromDisk && job.source === folder && ['uploading', 'processing'].includes(job.status)) {
       throw new HttpError(409, `"${folder}" is already being converted`)

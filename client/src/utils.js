@@ -292,7 +292,8 @@ const TAB_KEY = 'mp4-m3u8:tab'
 export const storedTab = {
   get() {
     try {
-      return localStorage.getItem(TAB_KEY) || 'move'
+      const tab = localStorage.getItem(TAB_KEY)
+      return tab && tab !== 'cut' ? tab : 'move' // the Cut frames tab was removed
     } catch {
       return 'move'
     }

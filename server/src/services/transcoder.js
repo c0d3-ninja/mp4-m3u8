@@ -61,7 +61,7 @@ const kbpsForShort = (short) => Math.max(400, Math.round(5000 * (short / 1080) *
 
 /**
  * Spawn a process (within the CPU limit, at low priority) and collect its output. Rejects with the tail of stderr on
- * failure. Exported as runTool for the other ffmpeg steps (e.g. cutting frames).
+ * failure. Exported as runTool for the other ffmpeg steps.
  */
 export function runTool(cmd, args, options) {
   return run(cmd, args, options)

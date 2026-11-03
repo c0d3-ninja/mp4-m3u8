@@ -63,14 +63,6 @@ export default function LibrarySources({ active, onStarted, onOpenJob, encoder, 
       return
     }
     if (
-      src.framesCut < src.videos &&
-      !window.confirm(
-        `The first frames of ${src.videos - src.framesCut} of the ${src.videos} videos in "${src.name}" are not cut yet (Cut frames tab). Convert anyway?`,
-      )
-    ) {
-      return
-    }
-    if (
       label.converted &&
       !window.confirm(`"${src.name}" was already converted. Convert it again into a new folder?`)
     ) {
@@ -135,10 +127,7 @@ export default function LibrarySources({ active, onStarted, onOpenJob, encoder, 
                         {src.videos} {src.videos === 1 ? 'video' : 'videos'} (no totalEpisodes in drama.json)
                       </span>
                     )}{' '}
-                    · {formatBytes(src.size)} ·{' '}
-                    <span className={src.framesCut < src.videos ? 'warn-text' : ''}>
-                      {src.cutting ? '✂️ cutting…' : `✂️ ${src.framesCut}/${src.videos} cut`}
-                    </span>
+                    · {formatBytes(src.size)}
                     {src.drama?.category && ` · ${src.drama.category}`}
                     {src.gaps.length > 0 && (
                       <span className="warn-text"> · missing episodes {formatGaps(src.gaps)}</span>
@@ -158,7 +147,7 @@ export default function LibrarySources({ active, onStarted, onOpenJob, encoder, 
                 <button
                   type="button"
                   className={`btn btn-sm ${label.converted ? 'btn-ghost' : 'btn-primary'}`}
-                  disabled={Boolean(starting) || label.busy || src.cutting}
+                  disabled={Boolean(starting) || label.busy}
                   onClick={() => convert(src, label)}
                 >
                   {starting === src.name ? 'Starting…' : label.converted ? 'Convert again' : 'Convert'}

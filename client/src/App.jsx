@@ -19,7 +19,6 @@ import FoldersPanel from './components/FoldersPanel.jsx'
 import MovePanel from './components/MovePanel.jsx'
 import LibrarySources from './components/LibrarySources.jsx'
 import AutoConvert from './components/AutoConvert.jsx'
-import CutFramesPanel from './components/CutFramesPanel.jsx'
 import LibraryUploads from './components/LibraryUploads.jsx'
 import MissingEpisodes from './components/MissingEpisodes.jsx'
 import EncoderChoice from './components/EncoderChoice.jsx'
@@ -407,15 +406,6 @@ export default function App() {
         <button
           type="button"
           role="tab"
-          aria-selected={tab === 'cut'}
-          className={`tab ${tab === 'cut' ? 'active' : ''}`}
-          onClick={() => switchTab('cut')}
-        >
-          ✂️ Cut frames
-        </button>
-        <button
-          type="button"
-          role="tab"
           aria-selected={tab === 'convert'}
           className={`tab ${tab === 'convert' ? 'active' : ''}`}
           onClick={() => switchTab('convert')}
@@ -587,10 +577,6 @@ export default function App() {
             switchTab('folders')
           }}
         />
-      </div>
-
-      <div className="tab-panel" hidden={tab !== 'cut'}>
-        <CutFramesPanel active={tab === 'cut'} />
       </div>
 
       <div className="tab-panel" hidden={tab !== 'folders'}>
