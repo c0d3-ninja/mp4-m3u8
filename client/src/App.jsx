@@ -8,6 +8,8 @@ import CloudflareSettings from './components/CloudflareSettings.jsx'
 import UploadPanel from './components/UploadPanel.jsx'
 import FoldersPanel from './components/FoldersPanel.jsx'
 import MovePanel from './components/MovePanel.jsx'
+import LibrarySources from './components/LibrarySources.jsx'
+import LibraryUploads from './components/LibraryUploads.jsx'
 
 // hls.js is large, so the player is only loaded when a preview is opened
 const PreviewModal = lazy(() => import('./components/PreviewModal.jsx'))
@@ -22,7 +24,14 @@ async function readDramaFile(file) {
     const data = JSON.parse(await file.text())
     if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('not an object')
     const pick = (k) => (typeof data[k] === 'string' && data[k].trim() ? data[k].trim() : null)
-    return { status: 'ok', info: { dramaName: pick('dramaName'), imageUrl: pick('imageUrl'), category: pick('category') } }
+    return {
+      status: 'ok',
+      info: {
+        dramaName: pick('dramaName'),
+        imageUrl: pick('imageUrl'),
+        category: pick('category'),
+      },
+    }
   } catch {
     return { status: 'invalid' }
   }
@@ -251,6 +260,15 @@ export default function App() {
     setUploading(false)
   }
 
+  /** A folder from the server's downloads folder: the server already started converting it in place. */
+  function startFromLibrary(created) {
+    setError(null)
+    setNotice(null)
+    storedJobId.set(created.id)
+    setUploads({})
+    setJob(created)
+  }
+
   async function cancelJob() {
     if (!window.confirm('Cancel this conversion? Episodes converted so far will be discarded.')) return
     uploadAbort.current?.abort()
@@ -413,20 +431,25 @@ export default function App() {
             </div>
           </section>
         ) : (
-          <section className="card empty">
-            <div className="empty-icon">📁</div>
-            <h2>Select a series folder</h2>
-            <p className="muted">
-              Every video inside is listed and selected. Each episode becomes a multi-quality HLS stream (1080p → 360p),
-              and everything is saved on the server in <strong>Downloads/&lt;random uuid&gt;/drama/</strong>, with the folder name in drama.json.
-            </p>
-            <FolderPicker onSelect={handleFolder}>Choose folder</FolderPicker>
-          </section>
+          <>
+            <LibrarySources active={tab === 'convert'} onStarted={startFromLibrary} />
+            <section className="card empty">
+              <div className="empty-icon">📁</div>
+              <h2>Or pick a folder on this computer</h2>
+              <p className="muted">
+                Every video inside is listed and selected. Each episode becomes a multi-quality HLS stream (1080p →
+                360p), and everything is saved on the server in <strong>Downloads/&lt;random uuid&gt;/drama/</strong>,
+                with the folder name in drama.json.
+              </p>
+              <FolderPicker onSelect={handleFolder}>Choose folder</FolderPicker>
+            </section>
+          </>
         )}
       </div>
 
       <div className="tab-panel" hidden={tab !== 'cloudflare'}>
         <CloudflareSettings settings={r2Settings} onSave={saveR2} onClear={clearR2} />
+        <LibraryUploads active={tab === 'cloudflare'} settings={r2Settings} />
         <UploadPanel settings={r2Settings} onPreview={setPreview} />
       </div>
 

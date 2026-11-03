@@ -83,6 +83,14 @@ export const move = {
   run: (folder, files, drama) => request('POST', '/api/move', { folder, files, ...drama }),
 }
 
+/** Folders in the server's downloads folder: MP4 folders to convert, converted folders to upload. */
+export const library = {
+  list: () => request('GET', '/api/library'),
+  convert: (folder) => request('POST', '/api/library/convert', { folder }),
+  upload: (id, settings) => request('POST', `/api/library/${encodeURIComponent(id)}/upload`, {}, r2Headers(settings)),
+  cancelUpload: (id) => request('DELETE', `/api/library/${encodeURIComponent(id)}/upload`),
+}
+
 export const r2 = {
   test: (settings) => request('POST', '/api/r2/test', undefined, r2Headers(settings)),
   series: (settings) => request('GET', '/api/r2/series', undefined, r2Headers(settings)),

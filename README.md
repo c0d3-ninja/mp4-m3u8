@@ -85,6 +85,20 @@ uploads straight from the server's output folder.
 - "Skip files already uploaded" (on by default) compares name + size, so **Retry**/**Resume** only sends what's missing.
 - `.ts`/`.jpg` get `Cache-Control: immutable` (1 year); `.m3u8`/`manifest.json` get 5 minutes.
 
+## Convert and upload from the server's downloads folder
+
+- **Convert tab → "<Downloads> folders":** every folder with videos in `DOWNLOADS_DIR`, labelled **Not converted /
+  Converting / Converted** (with episode count and date). **Convert** converts it in place on the server: nothing is
+  uploaded from the browser and the original MP4s are kept. Its `drama.json` is copied to the output.
+- **Upload tab → "Converted folders":** every `<uuid>` output folder, labelled **Uploaded / Not uploaded** for the
+  current bucket. **Upload** sends it from the server to `<bucket>/<uuid>/` (episodes, `manifest.json`, `drama.json`),
+  with live progress and **Cancel**. Re-uploading skips unchanged files.
+- Each `<uuid>/` has a hidden `.job.json` with the source folder, status and finished uploads; uploads skip hidden
+  files, so it never reaches the bucket. Recorded uploads are checked against the bucket's folders, so a folder
+  deleted from the bucket shows as not uploaded again.
+- A source folder can't be deleted (Folders tab) while it is being converted, and an output folder not while it is
+  being uploaded.
+
 ## Move tab
 
 **📦 Move** (the first tab) lists every `.mp4` directly inside the downloads folder. Files in sub-folders are
@@ -122,7 +136,7 @@ including everything inside it, or a single file.
 |---|---|---|
 | `FFMPEG_PRESET` | `veryfast` | x264 speed vs. quality (`faster`, `medium` = smaller/better but slower) |
 | `HLS_SEGMENT_SECONDS` | `4` | Segment length |
-| `CONCURRENCY` | `1` | Episodes converted in parallel |
+| `CONCURRENCY` | `2` | Episodes converted at the same time, across all conversions |
 | `FFMPEG_PATH` / `FFPROBE_PATH` | on `PATH` | Custom ffmpeg location |
 | `DOWNLOADS_DIR` | `~/Downloads` | Folder shown in the Folders tab |
 

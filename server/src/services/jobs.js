@@ -3,6 +3,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import { config } from '../config.js'
 import { transcodeToHls } from './transcoder.js'
+import { recordUpload, updateMarker } from './marker.js'
 
 export const VIDEO_EXTENSIONS = ['.mp4', '.m4v', '.mov', '.mkv', '.webm', '.avi']
 const MAX_FILES = 2000
@@ -45,12 +46,27 @@ export function getJob(id) {
   return job
 }
 
-const isBusy = (job) => ['uploading', 'processing'].includes(job.status) || job.r2?.status === 'uploading'
+const isConverting = (job) => ['uploading', 'processing'].includes(job.status)
+const isBusy = (job) => isConverting(job) || job.r2?.status === 'uploading'
 
-/** Ids (= output folder names in the downloads folder) of jobs still writing or reading their output. */
+/** Live jobs, e.g. for the Convert / Upload folder lists. */
+export const allJobs = () => jobs.values()
+
+// Cloudflare uploads of converted folders whose job is no longer in memory: id -> { id, workDir, outputRoot, r2, r2Controller }
+const folderUploads = new Map()
+export const getFolderUpload = (id) => folderUploads.get(id)
+
+/**
+ * Top-level names in the downloads folder that must not be deleted right now: output folders (job ids) still being
+ * written or uploaded, and source folders a server-side conversion is still reading MP4s from.
+ */
 export function busyJobIds() {
   const ids = new Set()
-  for (const job of jobs.values()) if (isBusy(job)) ids.add(job.id)
+  for (const job of jobs.values()) {
+    if (isBusy(job)) ids.add(job.id)
+    if (job.fromDisk && isConverting(job)) ids.add(job.source)
+  }
+  for (const u of folderUploads.values()) if (u.r2?.status === 'uploading') ids.add(u.id)
   return ids
 }
 
@@ -111,7 +127,7 @@ export const DRAMA_FILE = 'drama.json'
  * ({ dramaName, imageUrl, category }, written by the Move tab). It is copied to "<uuid>/drama.json";
  * without it the drama name is the folder name.
  */
-export function createJob({ folderName, files, drama: info } = {}) {
+export function createJob({ folderName, files, drama: info, fromDisk = false } = {}) {
   if (typeof folderName !== 'string' || !folderName.trim()) {
     throw new HttpError(400, 'folderName is required')
   }
@@ -173,6 +189,10 @@ export function createJob({ folderName, files, drama: info } = {}) {
   const job = {
     id,
     folderName: folder,
+    // Name of the folder the episodes came from (browser selection or downloads folder); stored in .job.json
+    source: folderName.trim(),
+    // Converted straight from "<downloads>/<source>/": the MP4s are read in place and never deleted
+    fromDisk,
     status: 'uploading', // uploading → processing → done | failed | cancelled
     createdAt: new Date().toISOString(),
     lastSeen: Date.now(),
@@ -200,6 +220,8 @@ export function toPublic(job) {
   return {
     id: job.id,
     folderName: job.folderName,
+    source: job.source,
+    fromDisk: job.fromDisk,
     drama: job.drama,
     status: job.status,
     createdAt: job.createdAt,
@@ -225,11 +247,19 @@ export function toPublic(job) {
 export async function writeDramaInfo(job) {
   await fsp.mkdir(job.workDir, { recursive: true })
   await fsp.writeFile(path.join(job.workDir, DRAMA_FILE), `${JSON.stringify(job.drama, null, 2)}\n`)
+  await updateMarker(job.workDir, () => ({
+    id: job.id,
+    source: job.source,
+    createdAt: job.createdAt,
+    status: 'converting',
+    uploads: [],
+  }))
 }
 
-/** Called after a file finished uploading to disk. */
-export function markUploaded(job, file, inputPath) {
+/** Called after a file finished uploading to disk (or, with keepInput, for a file already in the downloads folder). */
+export function markUploaded(job, file, inputPath, { keepInput = false } = {}) {
   file.inputPath = inputPath
+  file.keepInput = keepInput
   file.status = 'queued'
   queue.push({ job, file })
   pump()
@@ -292,8 +322,8 @@ async function convert(job, file) {
     await fsp.rm(outDir, { recursive: true, force: true }).catch(() => {})
   } finally {
     job.controllers.delete(controller)
-    // The upload is no longer needed either way; free the disk space.
-    if (file.inputPath) await fsp.rm(file.inputPath, { force: true }).catch(() => {})
+    // An uploaded copy is no longer needed either way; free the disk space. Source MP4s in the downloads folder stay.
+    if (file.inputPath && !file.keepInput) await fsp.rm(file.inputPath, { force: true }).catch(() => {})
   }
 }
 
@@ -316,6 +346,7 @@ function maybeFinish(job) {
   if (!job.files.some((f) => f.status === 'done')) {
     job.status = 'failed'
     job.error = 'No video could be converted'
+    updateMarker(job.workDir, (m) => ({ ...m, status: 'failed' }))
     return
   }
 
@@ -328,12 +359,19 @@ function maybeFinish(job) {
         size,
       }
       job.status = 'done'
+      updateMarker(job.workDir, (m) => ({
+        ...m,
+        status: 'done',
+        completedAt: new Date().toISOString(),
+        episodes: job.files.filter((f) => f.status === 'done').length,
+      }))
     },
     (err) => {
       if (job.cancelled) return
       console.error(`[${job.folderName}] manifest failed:`, err)
       job.status = 'failed'
       job.error = `Could not write manifest.json: ${err.message}`
+      updateMarker(job.workDir, (m) => ({ ...m, status: 'failed' }))
     },
   )
 }
@@ -383,15 +421,15 @@ async function folderSize(dir) {
 }
 
 /**
- * Upload the converted output of a finished job to Cloudflare R2 in the background.
+ * Upload "<workDir>/drama/" + drama.json to Cloudflare R2 in the background. `target` is a job or a folder upload
+ * ({ workDir, outputRoot, r2, r2Controller }); its `r2` state is mutated with progress so it can be polled.
  * `uploadDirectory` is passed in to keep this module free of the S3 dependency.
  */
-export function startR2Upload(job, connection, prefix, uploadDirectory, { skipExisting = true } = {}) {
-  if (job.status !== 'done') throw new HttpError(409, 'Convert the episodes first')
-  if (job.r2?.status === 'uploading') throw new HttpError(409, 'Already uploading to Cloudflare')
+function runR2Upload(target, connection, prefix, uploadDirectory, { skipExisting = true } = {}) {
+  if (target.r2?.status === 'uploading') throw new HttpError(409, 'Already uploading to Cloudflare')
 
   const controller = new AbortController()
-  job.r2Controller = controller
+  target.r2Controller = controller
   const state = {
     status: 'uploading', // uploading → done | failed | cancelled
     bucket: connection.bucket,
@@ -406,24 +444,52 @@ export function startR2Upload(job, connection, prefix, uploadDirectory, { skipEx
     fatal: null,
     startedAt: new Date().toISOString(),
   }
-  job.r2 = state
+  target.r2 = state
 
-  uploadDirectory(connection, job.outputRoot, prefix, state, {
+  uploadDirectory(connection, target.outputRoot, prefix, state, {
     signal: controller.signal,
     skipExisting,
-    extraFiles: [{ relativePath: DRAMA_FILE, fullPath: path.join(job.workDir, DRAMA_FILE) }],
+    extraFiles: [{ relativePath: DRAMA_FILE, fullPath: path.join(target.workDir, DRAMA_FILE) }],
   }).then(
     () => {
       if (controller.signal.aborted) state.status = 'cancelled'
       else state.status = state.failed > 0 || state.fatal ? 'failed' : 'done'
+      if (state.status === 'done') recordUpload(target.workDir, { bucket: state.bucket, prefix })
     },
     (err) => {
       state.status = controller.signal.aborted ? 'cancelled' : 'failed'
       state.fatal = err.message
     },
   ).finally(() => {
-    if (job.r2Controller === controller) job.r2Controller = null
+    if (target.r2Controller === controller) target.r2Controller = null
   })
+  return state
+}
+
+/** Upload the converted output of a finished job (the "Upload" box after converting). */
+export function startR2Upload(job, connection, prefix, uploadDirectory, options) {
+  if (job.status !== 'done') throw new HttpError(409, 'Convert the episodes first')
+  return runR2Upload(job, connection, prefix, uploadDirectory, options)
+}
+
+/**
+ * Upload a converted "<downloads>/<id>/" folder from the Upload tab's list. Uses the live job when it is still in
+ * memory, so both places show the same progress.
+ */
+export function startFolderUpload(id, connection, prefix, uploadDirectory, options) {
+  const job = jobs.get(id)
+  if (job) return startR2Upload(job, connection, prefix, uploadDirectory, options)
+  let target = folderUploads.get(id)
+  if (!target) {
+    const workDir = path.join(config.downloadsDir, id)
+    target = { id, workDir, outputRoot: path.join(workDir, SERIES_DIR), r2: null, r2Controller: null }
+    folderUploads.set(id, target)
+  }
+  return runR2Upload(target, connection, prefix, uploadDirectory, options)
+}
+
+export function cancelFolderUpload(id) {
+  ;(jobs.get(id) || folderUploads.get(id))?.r2Controller?.abort()
 }
 
 export function cancelR2Upload(job) {

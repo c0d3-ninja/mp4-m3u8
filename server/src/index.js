@@ -9,6 +9,7 @@ import jobsRouter from './routes/jobs.js'
 import r2Router from './routes/r2.js'
 import foldersRouter from './routes/folders.js'
 import moveRouter from './routes/move.js'
+import libraryRouter from './routes/library.js'
 import { getJob, prepareStorage } from './services/jobs.js'
 
 await prepareStorage()
@@ -45,6 +46,7 @@ app.use('/api/health', healthRouter)
 app.use('/api/jobs', jobsRouter)
 app.use('/api/folders', foldersRouter)
 app.use('/api/move', moveRouter)
+app.use('/api/library', libraryRouter)
 
 app.use('/api', (req, res) => {
   res.status(404).json({ error: 'Not found' })
