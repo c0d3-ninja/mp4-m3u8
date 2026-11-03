@@ -77,7 +77,7 @@ app.use((err, req, res, next) => {
 
 const server = app.listen(config.port, () => {
   console.log(`Server listening on http://localhost:${config.port}`)
-  console.log(`Converted series go to ${config.convertedDir}/<uuid>/`)
+  console.log(`Converted series go to ${config.convertedDir}/<drama id>/`)
   console.log(describeCpuLimit())
   console.log(`Transcoding with ${config.ffmpegPath} (preset ${config.ffmpegPreset}, ${config.concurrency} at a time)`)
 })

@@ -161,8 +161,8 @@ export default function MovePanel({ active = true, onOpenFolder }) {
         </label>
         <p className="muted small">
           The folder is named after <code>app_dramaName</code> (else <code>dramaName</code>). The whole JSON is saved as{' '}
-          <strong>drama.json</strong> in the folder and copied into the converted folder, with <code>cfId</code> set
-          to its UUID.
+          <strong>drama.json</strong> in the folder and copied into the converted folder, in a folder named
+          after its <code>id</code> (also saved as <code>cfId</code>).
         </p>
 
         <div className="actions end">

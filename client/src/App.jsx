@@ -30,7 +30,7 @@ async function readDramaFile(file) {
     const category = Array.isArray(data.category) ? data.category.join(', ') : data.category
     return {
       status: 'ok',
-      info: data, // sent as-is; the server copies every key into "<uuid>/drama.json"
+      info: data, // sent as-is; the server copies every key into "<id>/drama.json"
       summary: {
         dramaName: pick('app_dramaName') || pick('dramaName'),
         imageUrl: pick('imageUrl') || pick('posterImageUrl'),
@@ -482,7 +482,7 @@ export default function App() {
                 <p className="eyebrow">Selected folder</p>
                 <h2>📁 {selection.folderName}</h2>
                 <p className="muted">
-                  Output: <strong>Downloads/converted/&lt;uuid&gt;/</strong>
+                  Output: <strong>Downloads/converted/&lt;drama id&gt;/</strong>
                 </p>
               </div>
               <div className="actions">
@@ -523,8 +523,8 @@ export default function App() {
               <h2>Or pick a folder on this computer</h2>
               <p className="muted">
                 Every video inside is listed and selected. Each episode becomes a multi-quality HLS stream (1080p →
-                360p), and everything is saved on the server in <strong>Downloads/converted/&lt;random uuid&gt;/</strong>,
-                with the folder name in drama.json.
+                360p), and everything is saved on the server in <strong>Downloads/converted/&lt;drama id&gt;/</strong>
+                (the <code>id</code> in drama.json), with the folder name in drama.json.
               </p>
               <FolderPicker onSelect={handleFolder}>Choose folder</FolderPicker>
             </section>

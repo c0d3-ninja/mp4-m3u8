@@ -244,7 +244,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 /** Local files of an upload: everything under `dir` plus `extraFiles` (e.g. drama.json next to it). */
 async function localFiles(dir, extraFiles = []) {
   const files = await walkFiles(dir)
-  // Files from outside `dir` uploaded next to it, e.g. "<uuid>/drama.json" -> "<prefix>/drama.json"
+  // Files from outside `dir` uploaded next to it, e.g. "<id>/drama.json" -> "<prefix>/drama.json"
   for (const extra of extraFiles) {
     const st = await fsp.stat(extra.fullPath).catch(() => null)
     if (st?.isFile()) files.push({ ...extra, size: st.size })

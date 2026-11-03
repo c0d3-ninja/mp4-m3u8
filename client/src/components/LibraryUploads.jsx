@@ -145,7 +145,7 @@ export default function LibraryUploads({ active, settings, refreshKey = 0 }) {
           <p className="eyebrow">On the server</p>
           <h2>📦 Converted folders</h2>
           <p className="muted small">
-            Uploaded from the server to <strong>{settings.bucket || 'the bucket'}/&lt;uuid&gt;/</strong> (episodes,
+            Uploaded from the server to <strong>{settings.bucket || 'the bucket'}/&lt;drama id&gt;/</strong> (episodes,
             manifest.json and drama.json).
           </p>
         </div>

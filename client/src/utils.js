@@ -188,7 +188,7 @@ export function readUploadFolder(fileList) {
   }
   if (entries.length === 0) return { folderName, files: [], episodes: 0, hasManifest: false, totalBytes: 0 }
 
-  // A converter output folder "<uuid>/" holds drama.json next to "drama/" (the series with manifest.json).
+  // An old converter output folder "<uuid>/" holds drama.json next to "drama/" (the series with manifest.json).
   // Upload the series from inside drama/, with drama.json beside manifest.json.
   const dramaJson = entries.find((e) => e.parts.length === 1 && e.parts[0] === 'drama.json')
   const seriesInDrama = entries.some(

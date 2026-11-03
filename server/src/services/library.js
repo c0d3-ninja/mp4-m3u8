@@ -20,11 +20,13 @@ import {
   toPublic,
   writeDramaInfo,
   dramaSummary,
+  OUTPUT_ID,
 } from './jobs.js'
 
 // What the downloads folder holds, for the Convert tab (folders of MP4s) and the Upload tab (converted output).
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+// Output folder names: the drama's id ("7690462225898820616") or, for older output / dramas without an id, a UUID
+const isOutputName = (name) => OUTPUT_ID.test(name)
 
 async function readJson(file) {
   try {
@@ -35,9 +37,9 @@ async function readJson(file) {
   }
 }
 
-/** A converter output folder: "<downloads>/converted/<uuid>/" holding manifest.json or .job.json (or old drama/). */
+/** A converter output folder: "<downloads>/converted/<id>/" holding manifest.json or .job.json (or old drama/). */
 async function isOutputDir(name) {
-  if (!UUID.test(name)) return false
+  if (!isOutputName(name)) return false
   const dir = path.join(config.convertedDir, name)
   const has = (p) => fsp.stat(path.join(dir, p)).then(() => true, () => false)
   return (await has('manifest.json')) || (await has('.job.json')) || (await has(SERIES_DIR))
@@ -123,7 +125,7 @@ export async function scanLibrary() {
       .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
       .map((e) => e.name)
 
-  // Sources: the folders at the top of Downloads (not "converted/"); output: "converted/<uuid>/"
+  // Sources: the folders at the top of Downloads (not "converted/"); output: "converted/<id>/"
   const [sourceNames, outputNames] = await Promise.all([dirsIn(root), dirsIn(config.convertedDir)])
   const outputs = (await Promise.all(outputNames.map(async (n) => ((await isOutputDir(n)) ? n : null)))).filter(Boolean)
   const [converted, sources] = await Promise.all([
@@ -149,7 +151,7 @@ export async function scanLibrary() {
 
 /** One converted folder (same shape as scanLibrary().converted[]), or null. */
 export async function getConverted(id) {
-  if (!UUID.test(id) || !(await isOutputDir(id))) return null
+  if (!isOutputName(id) || !(await isOutputDir(id))) return null
   return describeOutput(id, new Map([...allJobs()].map((j) => [j.id, j])))
 }
 

@@ -41,7 +41,7 @@ router.get('/:id/verify', async (req, res) => {
   const last = [...entry.uploads].reverse().find((u) => u.bucket === connection.bucket)
   const prefix = cleanPrefix(req.query.prefix || last?.prefix || entry.id)
   const workDir = path.join(config.convertedDir, entry.id)
-  // Episodes, manifest.json and drama.json are all directly in the uuid folder (hidden .job.json is skipped)
+  // Episodes, manifest.json and drama.json are all directly in the "<id>" folder (hidden .job.json is skipped)
   const result = await verifyDirectory(connection, workDir, prefix)
   // A complete bucket copy counts as uploaded (also for uploads made before verification existed)
   if (result.ok) await recordUpload(workDir, { bucket: connection.bucket, prefix, files: result.total })

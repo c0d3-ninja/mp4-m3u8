@@ -2,7 +2,7 @@ import fsp from 'node:fs/promises'
 import path from 'node:path'
 
 /**
- * "<downloads>/<uuid>/.job.json" remembers where a conversion came from and where it was uploaded:
+ * "converted/<id>/.job.json" remembers where a conversion came from and where it was uploaded:
  *   { id, source, createdAt, status: converting | done | failed, completedAt, episodes, uploads: [{ bucket, prefix, at }] }
  * It is hidden (leading dot), so neither Cloudflare upload sends it to the bucket.
  */

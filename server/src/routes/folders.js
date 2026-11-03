@@ -2,13 +2,11 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { Router } from 'express'
 import { config } from '../config.js'
-import { HttpError, SERIES_DIR, VIDEO_EXTENSIONS, busyJobIds } from '../services/jobs.js'
+import { HttpError, SERIES_DIR, VIDEO_EXTENSIONS, busyJobIds, busyOutputIds } from '../services/jobs.js'
 import { episodeGaps } from '../services/episodes.js'
 import { folderStats, invalidateStats, isInside, resolveInRoot } from '../services/downloads.js'
 import { isConvertedFolderName } from '../services/library.js'
 import { isCutBusy } from '../services/cutFrames.js'
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 const router = Router()
 
@@ -99,7 +97,7 @@ router.delete('/', async (req, res) => {
   const hit = isConvertedFolderName(first)
     ? second
       ? busy.has(second)
-      : [...busy].some((id) => UUID.test(id))
+      : busyOutputIds().size > 0
     : busy.has(first) || isCutBusy(first)
   if (hit) {
     throw new HttpError(409, 'This folder is still being converted or uploaded. Cancel that job first, or wait for it to finish.')

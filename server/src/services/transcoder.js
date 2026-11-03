@@ -2,7 +2,6 @@ import { spawn } from 'node:child_process'
 import os from 'node:os'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import sharp from 'sharp'
 import { config } from '../config.js'
 import { encoderThreads, helperThreads, limitedCommand } from './cpu.js'
 
@@ -169,7 +168,6 @@ export function pickRenditions(width, height, fps = 30) {
  * Convert one video into an HLS package:
  *   outDir/master.m3u8
  *   outDir/<rendition>/index.m3u8 + seg_000.ts …
- *   outDir/first_frame.webp
  */
 export async function transcodeToHls(input, outDir, { onProgress, signal } = {}) {
   const info = await probe(input, { signal })
@@ -265,52 +263,17 @@ export async function transcodeToHls(input, outDir, { onProgress, signal } = {})
     throw new Error('ffmpeg finished but master.m3u8 was not created')
   })
 
-  const poster = await createPoster(input, outDir, info, renditions, signal)
-
   return {
     duration: info.duration,
     width: info.width,
     height: info.height,
     fps: Math.round(info.fps * 1000) / 1000,
     hasAudio: info.hasAudio,
-    poster,
     renditions: renditions.map((r) => ({
       name: r.name,
       width: r.width,
       height: r.height,
       bandwidth: (r.videoKbps + (info.hasAudio ? AUDIO_KBPS : 0)) * 1000,
     })),
-  }
-}
-
-export const POSTER_FILE = 'first_frame.webp'
-
-/**
- * Save the video's first frame as first_frame.webp (non-fatal if it fails). Returns the file name or null.
- * Many ffmpeg builds (e.g. Homebrew's) have no WebP encoder, so ffmpeg writes a lossless PNG and sharp makes the WebP.
- */
-async function createPoster(input, outDir, info, renditions, signal) {
-  const target = renditions.find((r) => r.short <= 720) || renditions[renditions.length - 1]
-  const png = '.first_frame.png' // relative to cwd=outDir: ffmpeg treats "%" in output paths as a pattern
-  try {
-    await run(
-      config.ffmpegPath,
-      [
-        '-hide_banner', '-nostdin', '-y', '-loglevel', 'error',
-        '-i', input,
-        '-frames:v', '1',
-        '-vf', `scale=${target.width}:${target.height},setsar=1`,
-        png,
-      ],
-      { cwd: outDir, signal },
-    )
-    if (signal?.aborted) throw signal.reason
-    await sharp(path.join(outDir, png)).webp({ quality: 82 }).toFile(path.join(outDir, POSTER_FILE))
-    return POSTER_FILE
-  } catch (err) {
-    if (err.name === 'AbortError') throw err
-    return null
-  } finally {
-    await fs.rm(path.join(outDir, png), { force: true }).catch(() => {})
   }
 }

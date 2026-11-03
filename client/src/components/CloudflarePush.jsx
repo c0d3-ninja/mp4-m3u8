@@ -4,7 +4,7 @@ import { cleanPrefix, formatBytes, isR2Configured, percent, publicObjectUrl } fr
 
 /** "Upload to Cloudflare" for a finished conversion: the server uploads its converted files directly. */
 export default function CloudflarePush({ job, settings, onChanged, onOpenSettings }) {
-  // Same default as the Upload tab's list: one bucket folder per conversion, named after its uuid
+  // Same default as the Upload tab's list: one bucket folder per conversion, named after its drama id
   const [prefix, setPrefix] = useState(job.id)
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)

@@ -14,7 +14,8 @@ import FolderPicker from './FolderPicker.jsx'
 import MissingEpisodes from './MissingEpisodes.jsx'
 
 const CONCURRENCY = 6
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+// Converted folder names: the drama's id from drama.json (older ones: a UUID)
+const OUTPUT_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 function formatEta(seconds) {
@@ -96,9 +97,9 @@ export default function UploadPanel({ settings, onPreview, onServerUpload }) {
     setError(null)
     setEpisodes(null)
 
-    // A converted "<uuid>" folder that is also in the server's downloads folder (e.g. Chrome on the same pod) is
+    // A converted "<id>" folder that is also in the server's downloads folder (e.g. Chrome on the same pod) is
     // uploaded by the server from its own copy: it keeps going if this page is closed or left.
-    if (UUID.test(folder.folderName)) {
+    if (OUTPUT_ID.test(folder.folderName)) {
       try {
         await library.upload(folder.folderName, settings, { prefix: dest, skipExisting })
         setProgress({ status: 'server', prefix: dest })
@@ -278,7 +279,7 @@ export default function UploadPanel({ settings, onPreview, onServerUpload }) {
               </p>
             ) : (
               <p className="muted">
-                Choose a converted <strong>&lt;uuid&gt;</strong> folder (episodes, <strong>manifest.json</strong> and{' '}
+                Choose a converted <strong>&lt;drama id&gt;</strong> folder (episodes, <strong>manifest.json</strong> and{' '}
                 <strong>drama.json</strong>), or any folder with <strong>manifest.json</strong>. The series and drama.json
                 are uploaded to the destination folder below.
               </p>

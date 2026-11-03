@@ -47,4 +47,4 @@ that drama as downloaded; every card (DramaSave, Gemini, ChatGPT) then shows a *
 
 On `http://localhost:5173/` (this app's dev server) the card has a **Fill JSON** button per drama: it opens the Move
 tab and fills its JSON field with the drama's whole entry from `dramas-next.json`. The folder is named after
-`app_dramaName`, and the JSON is saved as the folder's `drama.json` (copied, with `cfId` = the UUID, when converting).
+`app_dramaName`, and the JSON is saved as the folder's `drama.json` (copied when converting, into `converted/<id>/`, with `cfId` = that id).

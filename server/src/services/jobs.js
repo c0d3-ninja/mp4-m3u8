@@ -7,7 +7,8 @@ import { recordUpload, updateMarker } from './marker.js'
 
 export const VIDEO_EXTENSIONS = ['.mp4', '.m4v', '.mov', '.mkv', '.webm', '.avi']
 const MAX_FILES = 2000
-// Every series is written to "<downloads>/converted/<uuid>/" (episode folders + manifest.json + drama.json); the real name is in drama.json next to it
+// Every series is written to "<downloads>/converted/<id>/" (episode folders + manifest.json + drama.json), <id> being
+// the "id" in drama.json; the real name is in drama.json next to it
 // Old layout only: the episodes used to sit in "<uuid>/drama/". Now they are directly in "<uuid>/" next to
 // manifest.json and drama.json; old folders are flattened on startup (see flattenOutput).
 export const SERIES_DIR = 'drama'
@@ -68,6 +69,14 @@ export function busyJobIds() {
     if (isBusy(job)) ids.add(job.id)
     if (job.fromDisk && isConverting(job)) ids.add(job.source)
   }
+  for (const u of folderUploads.values()) if (u.r2?.status === 'uploading') ids.add(u.id)
+  return ids
+}
+
+/** Output folders ("converted/<id>/") that are being written to or uploaded right now. */
+export function busyOutputIds() {
+  const ids = new Set()
+  for (const job of jobs.values()) if (isBusy(job)) ids.add(job.id)
   for (const u of folderUploads.values()) if (u.r2?.status === 'uploading') ids.add(u.id)
   return ids
 }
@@ -156,8 +165,18 @@ export function dramaSummary(data) {
 
 /**
  * createJob({ folderName, files, drama? }): `drama` is the selected folder's drama.json (written by the Move tab),
- * copied with all its keys to "<uuid>/drama.json"; without it the drama name is the folder name.
+ * copied with all its keys to "converted/<id>/drama.json"; without it the drama name is the folder name.
  */
+/** A drama.json "id" usable as a folder name, or null. */
+export const OUTPUT_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/
+export function dramaIdOf(drama) {
+  const v = drama?.id
+  if (typeof v !== 'string' && typeof v !== 'number') return null
+  const id = String(v).trim()
+  return OUTPUT_ID.test(id) ? id : null
+}
+const outputIdOf = (drama) => dramaIdOf(drama) ?? crypto.randomUUID()
+
 export function createJob({ folderName, files, drama: info, fromDisk = false } = {}) {
   if (typeof folderName !== 'string' || !folderName.trim()) {
     throw new HttpError(400, 'folderName is required')
@@ -171,8 +190,15 @@ export function createJob({ folderName, files, drama: info, fromDisk = false } =
   }
 
   const folder = safeName(folderName)
-  // The job id is a random UUID; the output goes to "<downloads>/<uuid>/drama/"
-  const id = crypto.randomUUID()
+  // The job id is the drama's "id" from drama.json (e.g. "7690462225898820616"); the output goes to
+  // "<downloads>/converted/<id>/". Only a drama without a usable id falls back to a random UUID.
+  const id = outputIdOf(drama)
+  if (busyJobIds().has(id)) {
+    throw new HttpError(409, `Drama ${id} is already being converted or uploaded. Wait for it, or cancel it first.`)
+  }
+  // Converting the same drama again replaces its earlier output (writeDramaInfo clears the folder). Forget the old
+  // job so its idle cleanup can never touch the new one.
+  jobs.delete(id)
   const usedOutputs = new Set()
 
   const sorted = files
@@ -223,7 +249,7 @@ export function createJob({ folderName, files, drama: info, fromDisk = false } =
     status: 'uploading', // uploading → processing → done | failed | cancelled
     createdAt: new Date().toISOString(),
     lastSeen: Date.now(),
-    // Written to "<downloads>/<uuid>/drama.json" as soon as the job starts
+    // Written to "converted/<id>/drama.json" as soon as the job starts
     drama,
     files: jobFiles,
     uploadsComplete: false,
@@ -232,7 +258,7 @@ export function createJob({ folderName, files, drama: info, fromDisk = false } =
     cancelled: false,
     uploadDir: path.join(config.uploadsDir, id),
     workDir: path.join(config.convertedDir, id),
-    outputRoot: path.join(config.convertedDir, id), // episodes go straight into the uuid folder
+    outputRoot: path.join(config.convertedDir, id), // episodes go straight into the "<id>" folder
     controllers: new Set(),
     running: new Set(),
     r2: null, // Cloudflare upload of the converted output
@@ -270,11 +296,13 @@ export function toPublic(job) {
   }
 }
 
-/** "<downloads>/<uuid>/drama.json" next to the series folder: { cfId: <uuid>, ...the source folder's drama.json }. */
+/** "converted/<id>/drama.json" next to the episodes: { cfId: <id>, ...the source folder's drama.json }. */
 export async function writeDramaInfo(job) {
+  // A new conversion of the same drama starts from an empty folder (createJob refused it while that one was busy)
+  await fsp.rm(job.workDir, { recursive: true, force: true, maxRetries: 3 })
   await fsp.mkdir(job.workDir, { recursive: true })
-  // "cfId" = the random uuid of this conversion (its folder name and default bucket folder), first in the file.
-  // Every other key (including the TikTok "id" from dramas-next.json) is copied from the source drama.json.
+  // "cfId" = this conversion's folder name (and default bucket folder), first in the file: the drama's own "id",
+  // or a random UUID for a drama without one. Every other key is copied from the source drama.json.
   const { cfId: _old, ...rest } = job.drama || {}
   const info = { cfId: job.id, ...rest }
   await fsp.writeFile(path.join(job.workDir, DRAMA_FILE), `${JSON.stringify(info, null, 2)}\n`)
@@ -418,7 +446,6 @@ function buildManifest(job) {
       title: path.posix.basename(f.outputPath),
       source: f.relativePath,
       playlist: `${f.outputPath}/master.m3u8`,
-      poster: f.result.poster ? `${f.outputPath}/${f.result.poster}` : null,
       duration: Math.round(f.result.duration * 1000) / 1000,
       width: f.result.width,
       height: f.result.height,
@@ -541,7 +568,9 @@ export async function removeJob(job) {
   job.cancelled = true
   job.r2Controller?.abort()
   if (!['done', 'failed'].includes(job.status)) job.status = 'cancelled'
-  jobs.delete(job.id)
+  // A newer conversion of the same drama reuses the id (and the folder): leave that one alone
+  const replaced = jobs.get(job.id) !== job
+  if (!replaced) jobs.delete(job.id)
 
   for (let i = queue.length - 1; i >= 0; i--) {
     if (queue[i].job === job) queue.splice(i, 1)
@@ -550,7 +579,7 @@ export async function removeJob(job) {
   await Promise.allSettled([...job.running])
 
   await Promise.all(
-    [job.uploadDir, ...(keepOutput ? [] : [job.workDir])].map((dir) =>
+    (replaced ? [] : [job.uploadDir, ...(keepOutput ? [] : [job.workDir])]).map((dir) =>
       fsp.rm(dir, { recursive: true, force: true, maxRetries: 3 }).catch(() => {}),
     ),
   )

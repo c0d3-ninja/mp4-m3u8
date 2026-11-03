@@ -136,11 +136,6 @@ export default function JobView({
           return (
             <li key={file.id} className={`row job-row ${s.tone}`}>
               <span className="num">{index + 1}</span>
-              {r?.poster ? (
-                <img className="thumb" src={hlsUrl(job, file.outputPath, r.poster)} alt="" loading="lazy" />
-              ) : (
-                <span className="thumb" />
-              )}
               <div className="row-main">
                 <div className="row-top">
                   <span className="name" title={file.relativePath}>
