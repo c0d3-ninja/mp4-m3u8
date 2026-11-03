@@ -1,8 +1,6 @@
-import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { ZipArchive } from 'archiver'
 import { config } from '../config.js'
 import { transcodeToHls } from './transcoder.js'
 
@@ -40,8 +38,35 @@ function segmentsOf(relativePath) {
 }
 
 export function getJob(id) {
-  return jobs.get(id)
+  const job = jobs.get(id)
+  if (job) job.lastSeen = Date.now()
+  return job
 }
+
+const isBusy = (job) => ['uploading', 'processing'].includes(job.status) || job.r2?.status === 'uploading'
+
+/** Ids (= output folder names in the downloads folder) of jobs still writing or reading their output. */
+export function busyJobIds() {
+  const ids = new Set()
+  for (const job of jobs.values()) if (isBusy(job)) ids.add(job.id)
+  return ids
+}
+
+// Finished jobs whose page was closed would otherwise stay in memory forever. Forgetting a done job
+// keeps its output in the downloads folder (removeJob only deletes the partial output of failed jobs).
+const IDLE_JOB_MS = 6 * 60 * 60 * 1000
+setInterval(() => {
+  const cutoff = Date.now() - IDLE_JOB_MS
+  for (const job of jobs.values()) {
+    if (job.lastSeen >= cutoff) continue
+    if (!isBusy(job)) {
+      removeJob(job).catch(() => {})
+    } else if (job.status === 'uploading' && !job.files.some((f) => f.status === 'uploading')) {
+      // Page closed mid-upload and never came back: keep the episodes that arrived, like "Convert uploaded episodes"
+      finalizeUploads(job)
+    }
+  }
+}, 15 * 60 * 1000).unref()
 
 /**
  * Create a job for a folder. `files` = [{ relativePath, size }], paths relative to the folder.
@@ -58,6 +83,7 @@ export function createJob({ folderName, files } = {}) {
   }
 
   const folder = safeName(folderName)
+  // The job id is a random UUID; the output goes to "<downloads>/<uuid>/<FolderName>/"
   const id = crypto.randomUUID()
   const usedOutputs = new Set()
 
@@ -102,20 +128,21 @@ export function createJob({ folderName, files } = {}) {
   const job = {
     id,
     folderName: folder,
-    status: 'uploading', // uploading → processing → zipping → done | failed | cancelled
+    status: 'uploading', // uploading → processing → done | failed | cancelled
     createdAt: new Date().toISOString(),
+    lastSeen: Date.now(),
     files: jobFiles,
     uploadsComplete: false,
-    zip: null,
-    zipProgress: 0,
+    output: null, // { folder, path, size } once done
     error: null,
     cancelled: false,
     uploadDir: path.join(config.uploadsDir, id),
-    workDir: path.join(config.hlsDir, id),
-    outputRoot: path.join(config.hlsDir, id, folder),
-    zipPath: path.join(config.zipsDir, id, `${folder}.zip`),
+    workDir: path.join(config.downloadsDir, id),
+    outputRoot: path.join(config.downloadsDir, id, folder),
     controllers: new Set(),
     running: new Set(),
+    r2: null, // Cloudflare upload of the converted output
+    r2Controller: null,
   }
   jobs.set(id, job)
   return job
@@ -130,8 +157,8 @@ export function toPublic(job) {
     createdAt: job.createdAt,
     uploadsComplete: job.uploadsComplete,
     error: job.error,
-    zip: job.zip,
-    zipProgress: job.zipProgress,
+    output: job.output,
+    r2: job.r2,
     hlsBaseUrl: `/hls/${job.id}/${encodeURIComponent(job.folderName)}`,
     files: job.files.map((f) => ({
       id: f.id,
@@ -238,18 +265,21 @@ function maybeFinish(job) {
     return
   }
 
-  job.status = 'zipping'
-  createZip(job).then(
+  writeManifest(job).then(
     (size) => {
       if (job.cancelled) return
-      job.zip = { fileName: `${job.folderName}.zip`, size }
+      job.output = {
+        folder: `${job.id}/${job.folderName}`, // relative to the downloads folder
+        path: job.outputRoot,
+        size,
+      }
       job.status = 'done'
     },
     (err) => {
       if (job.cancelled) return
-      console.error(`[${job.folderName}] zip failed:`, err)
+      console.error(`[${job.folderName}] manifest failed:`, err)
       job.status = 'failed'
-      job.error = `Could not create zip: ${err.message}`
+      job.error = `Could not write manifest.json: ${err.message}`
     },
   )
 }
@@ -269,6 +299,7 @@ function buildManifest(job) {
       duration: Math.round(f.result.duration * 1000) / 1000,
       width: f.result.width,
       height: f.result.height,
+      fps: f.result.fps,
       renditions: f.result.renditions,
     })),
     failed: job.files
@@ -277,43 +308,78 @@ function buildManifest(job) {
   }
 }
 
-/** Zip "<outputRoot>" as "<FolderName>.zip" containing a "<FolderName>/" folder. */
-async function createZip(job) {
+/** Write manifest.json next to the episodes and return the total size of the output folder. */
+async function writeManifest(job) {
   await fsp.writeFile(
     path.join(job.outputRoot, 'manifest.json'),
     JSON.stringify(buildManifest(job), null, 2),
   )
-  await fsp.mkdir(path.dirname(job.zipPath), { recursive: true })
-  await fsp.rm(job.zipPath, { force: true })
-
-  await new Promise((resolve, reject) => {
-    const output = fs.createWriteStream(job.zipPath)
-    // Video segments are already compressed; storing is much faster and the same size.
-    const archive = new ZipArchive({ store: true })
-
-    output.on('close', resolve)
-    output.on('error', reject)
-    archive.on('error', reject)
-    archive.on('warning', (err) => {
-      if (err.code !== 'ENOENT') reject(err)
-    })
-    archive.on('progress', ({ fs: p }) => {
-      if (p.totalBytes > 0) job.zipProgress = Math.min(1, p.processedBytes / p.totalBytes)
-    })
-
-    archive.pipe(output)
-    archive.directory(job.outputRoot, job.folderName)
-    archive.finalize()
-  })
-
-  job.zipProgress = 1
-  const { size } = await fsp.stat(job.zipPath)
-  return size
+  return folderSize(job.outputRoot)
 }
 
-/** Cancel (if running) and delete everything belonging to a job. */
+async function folderSize(dir) {
+  const entries = await fsp.readdir(dir, { withFileTypes: true })
+  const sizes = await Promise.all(
+    entries.map((e) => {
+      const p = path.join(dir, e.name)
+      return e.isDirectory() ? folderSize(p) : fsp.lstat(p).then((st) => st.size, () => 0)
+    }),
+  )
+  return sizes.reduce((a, b) => a + b, 0)
+}
+
+/**
+ * Upload the converted output of a finished job to Cloudflare R2 in the background.
+ * `uploadDirectory` is passed in to keep this module free of the S3 dependency.
+ */
+export function startR2Upload(job, connection, prefix, uploadDirectory, { skipExisting = true } = {}) {
+  if (job.status !== 'done') throw new HttpError(409, 'Convert the episodes first')
+  if (job.r2?.status === 'uploading') throw new HttpError(409, 'Already uploading to Cloudflare')
+
+  const controller = new AbortController()
+  job.r2Controller = controller
+  const state = {
+    status: 'uploading', // uploading → done | failed | cancelled
+    bucket: connection.bucket,
+    prefix,
+    total: 0,
+    uploaded: 0,
+    skipped: 0,
+    failed: 0,
+    totalBytes: 0,
+    uploadedBytes: 0,
+    errors: [],
+    fatal: null,
+    startedAt: new Date().toISOString(),
+  }
+  job.r2 = state
+
+  uploadDirectory(connection, job.outputRoot, prefix, state, { signal: controller.signal, skipExisting }).then(
+    () => {
+      if (controller.signal.aborted) state.status = 'cancelled'
+      else state.status = state.failed > 0 || state.fatal ? 'failed' : 'done'
+    },
+    (err) => {
+      state.status = controller.signal.aborted ? 'cancelled' : 'failed'
+      state.fatal = err.message
+    },
+  ).finally(() => {
+    if (job.r2Controller === controller) job.r2Controller = null
+  })
+}
+
+export function cancelR2Upload(job) {
+  job.r2Controller?.abort()
+}
+
+/**
+ * Cancel (if running) and forget a job. Finished output stays in the downloads folder
+ * (delete it from the Folders tab); a cancelled or failed job's partial output is removed.
+ */
 export async function removeJob(job) {
+  const keepOutput = job.status === 'done'
   job.cancelled = true
+  job.r2Controller?.abort()
   if (!['done', 'failed'].includes(job.status)) job.status = 'cancelled'
   jobs.delete(job.id)
 
@@ -324,7 +390,7 @@ export async function removeJob(job) {
   await Promise.allSettled([...job.running])
 
   await Promise.all(
-    [job.uploadDir, job.workDir, path.dirname(job.zipPath)].map((dir) =>
+    [job.uploadDir, ...(keepOutput ? [] : [job.workDir])].map((dir) =>
       fsp.rm(dir, { recursive: true, force: true, maxRetries: 3 }).catch(() => {}),
     ),
   )
@@ -333,8 +399,6 @@ export async function removeJob(job) {
 /** On startup: create storage folders and drop half-finished uploads from a previous run. */
 export async function prepareStorage() {
   await fsp.rm(config.uploadsDir, { recursive: true, force: true })
-  await Promise.all(
-    [config.uploadsDir, config.hlsDir, config.zipsDir].map((dir) => fsp.mkdir(dir, { recursive: true })),
-  )
+  await Promise.all([config.uploadsDir, config.downloadsDir].map((dir) => fsp.mkdir(dir, { recursive: true })))
   await fsp.writeFile(path.join(config.uploadsDir, '.gitkeep'), '')
 }

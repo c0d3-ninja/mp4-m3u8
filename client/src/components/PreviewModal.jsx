@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Hls from 'hls.js'
 
-export default function PreviewModal({ src, title, onClose }) {
+export default function PreviewModal({ src, title, remote = false, onClose }) {
   const videoRef = useRef(null)
   const hlsRef = useRef(null)
   const [levels, setLevels] = useState([])
@@ -19,7 +19,11 @@ export default function PreviewModal({ src, title, onClose }) {
       hls.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
         setLevels(
           data.levels
-            .map((l, index) => ({ index, label: `${Math.min(l.width, l.height)}p`, height: Math.min(l.width, l.height) }))
+            .map((l, index) => ({
+              index,
+              label: `${Math.min(l.width, l.height)}p`,
+              height: Math.min(l.width, l.height),
+            }))
             .sort((a, b) => b.height - a.height),
         )
         video.play().catch(() => {})
@@ -29,7 +33,13 @@ export default function PreviewModal({ src, title, onClose }) {
         if (l) setPlaying(`${l.width}×${l.height}`)
       })
       hls.on(Hls.Events.ERROR, (_, data) => {
-        if (data.fatal) setError(`Playback error: ${data.details}`)
+        if (!data.fatal) return
+        const network = data.type === Hls.ErrorTypes.NETWORK_ERROR
+        setError(
+          remote && network
+            ? `Could not load from Cloudflare (${data.details}). Check the bucket's CORS policy allows ${window.location.origin} and that the Public URL is correct.`
+            : `Playback error: ${data.details}`,
+        )
       })
       hls.loadSource(src)
       hls.attachMedia(video)
@@ -50,7 +60,7 @@ export default function PreviewModal({ src, title, onClose }) {
     }
 
     setError('This browser cannot play HLS')
-  }, [src])
+  }, [src, remote])
 
   useEffect(() => {
     const onKey = (e) => e.key === 'Escape' && onClose()

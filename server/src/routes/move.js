@@ -1,0 +1,107 @@
+import fs from 'node:fs/promises'
+import path from 'node:path'
+import { Router } from 'express'
+import { config } from '../config.js'
+import { HttpError } from '../services/jobs.js'
+import { invalidateStats, isInside, realRoot } from '../services/downloads.js'
+
+const router = Router()
+
+const isMp4 = (name) => name.toLowerCase().endsWith('.mp4') && !name.startsWith('.') // skips "._Episode 1.mp4"
+
+/** MP4 files directly inside the downloads folder (not in sub-folders), plus the existing folder names. */
+async function scan(root) {
+  const entries = await fs.readdir(root, { withFileTypes: true })
+  const files = []
+  const folders = []
+  await Promise.all(
+    entries.map(async (e) => {
+      if (e.isDirectory()) {
+        if (!e.name.startsWith('.')) folders.push(e.name)
+        return
+      }
+      if (!e.isFile() || !isMp4(e.name)) return
+      const st = await fs.lstat(path.join(root, e.name)).catch(() => null)
+      if (st) files.push({ name: e.name, size: st.size, modified: st.mtime.toISOString() })
+    }),
+  )
+  return { files, folders }
+}
+
+/** A single folder name: no slashes, not "." / "..", nothing a file system would reject. */
+function cleanFolderName(value) {
+  const name = String(value ?? '').trim()
+  if (!name) throw new HttpError(400, 'Enter a folder name')
+  if (/[\\/\u0000]/.test(name) || name === '.' || name === '..') {
+    throw new HttpError(400, 'The folder name cannot contain "/" or "\\" and cannot be "." or ".."')
+  }
+  if (Buffer.byteLength(name) > 255) throw new HttpError(400, 'The folder name is too long')
+  return name
+}
+
+/** rename(), falling back to copy + delete when the target folder is on another disk (a symlinked folder). */
+async function moveFile(from, to) {
+  try {
+    await fs.rename(from, to)
+  } catch (err) {
+    if (err.code !== 'EXDEV') throw err
+    await fs.copyFile(from, to, fs.constants.COPYFILE_EXCL)
+    await fs.rm(from)
+  }
+}
+
+// Files that would be moved: GET /api/move
+router.get('/', async (req, res) => {
+  const root = await realRoot()
+  res.json({ root: config.downloadsDir, ...(await scan(root)) })
+})
+
+// Move MP4s into a folder: POST /api/move { folder, files?: ["Episode 1.mp4", ...] }
+// `files` is the list the UI showed; when it's left out, every MP4 currently at the top level is moved.
+router.post('/', async (req, res) => {
+  const root = await realRoot()
+  const folder = cleanFolderName(req.body?.folder)
+  const { files: current } = await scan(root)
+  const available = new Set(current.map((f) => f.name))
+
+  const requested = Array.isArray(req.body?.files) ? req.body.files.map(String) : [...available]
+  if (requested.length === 0) throw new HttpError(400, 'There are no MP4 files to move')
+
+  // Create the folder if needed; an existing one must be a real folder inside the downloads folder
+  const target = path.join(root, folder)
+  let created = false
+  const existing = await fs.lstat(target).catch(() => null)
+  if (!existing) {
+    await fs.mkdir(target)
+    created = true
+  } else {
+    const real = await fs.realpath(target)
+    if (!isInside(root, real)) throw new HttpError(403, `"${folder}" points outside the downloads folder`)
+    if (!(await fs.stat(real)).isDirectory()) throw new HttpError(409, `"${folder}" already exists and is not a folder`)
+  }
+
+  const moved = []
+  const skipped = []
+  for (const name of requested) {
+    if (!available.has(name)) {
+      skipped.push({ name, reason: 'Not an MP4 at the top level of the downloads folder (moved or deleted?)' })
+      continue
+    }
+    const to = path.join(target, name)
+    if (await fs.lstat(to).catch(() => null)) {
+      skipped.push({ name, reason: `A file with this name is already in "${folder}"` })
+      continue
+    }
+    try {
+      await moveFile(path.join(root, name), to)
+      moved.push(name)
+    } catch (err) {
+      skipped.push({ name, reason: err.message })
+    }
+  }
+
+  if (moved.length) invalidateStats()
+  res.json({ folder, created, moved, skipped })
+})
+
+export default router

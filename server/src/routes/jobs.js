@@ -1,8 +1,11 @@
 import fs from 'node:fs/promises'
 import { Router } from 'express'
 import multer from 'multer'
+import { cleanPrefix, connectionFromRequest, uploadDirectory } from '../services/r2.js'
 import {
   HttpError,
+  cancelR2Upload,
+  startR2Upload,
   createJob,
   finalizeUploads,
   getJob,
@@ -70,18 +73,23 @@ router.post('/:id/files/:fileId', loadJob, (req, res, next) => {
   })
 })
 
-// All uploads sent; convert what arrived and zip when done
+// All uploads sent; convert what arrived, then write manifest.json
 router.post('/:id/finalize', loadJob, (req, res) => {
   finalizeUploads(req.job)
   res.json(toPublic(req.job))
 })
 
-router.get('/:id/download', loadJob, (req, res, next) => {
-  const { job } = req
-  if (job.status !== 'done') return next(new HttpError(409, 'Zip is not ready yet'))
-  res.download(job.zipPath, `${job.folderName}.zip`, (err) => {
-    if (err && !res.headersSent) next(err)
-  })
+// Upload the converted series to Cloudflare R2 (credentials in X-R2-* headers)
+router.post('/:id/r2', loadJob, (req, res) => {
+  const connection = connectionFromRequest(req)
+  const prefix = cleanPrefix(req.body?.prefix)
+  startR2Upload(req.job, connection, prefix, uploadDirectory, { skipExisting: req.body?.skipExisting !== false })
+  res.json(toPublic(req.job))
+})
+
+router.delete('/:id/r2', loadJob, (req, res) => {
+  cancelR2Upload(req.job)
+  res.json(toPublic(req.job))
 })
 
 // Cancel a running job, or clean up a finished one

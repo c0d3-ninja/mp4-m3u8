@@ -1,3 +1,4 @@
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -29,6 +30,12 @@ export const config = {
   concurrency: Math.floor(positiveNumber(process.env.CONCURRENCY, 1)),
 
   uploadsDir: path.join(root, 'storage', 'uploads'),
-  hlsDir: path.join(root, 'storage', 'hls'),
-  zipsDir: path.join(root, 'storage', 'zips'),
+
+  // Converted series are written to "<downloadsDir>/<uuid>/<FolderName>/", and this is the folder shown in the
+  // "Folders" tab (browse + delete). Defaults to ~/Downloads of the user running the server.
+  downloadsDir: path.resolve(expandHome(process.env.DOWNLOADS_DIR || '~/Downloads')),
+}
+
+function expandHome(p) {
+  return p === '~' || p.startsWith('~/') ? path.join(os.homedir(), p.slice(1)) : p
 }

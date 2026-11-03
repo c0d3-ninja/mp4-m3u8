@@ -4,13 +4,15 @@
   "version": "0.1.0",
   "type": "module",
   "main": "src/index.js",
-  "engines": { "node": ">=20.12" },
+  "engines": {
+    "node": ">=20.12"
+  },
   "scripts": {
     "dev": "node --watch src/index.js",
     "start": "node src/index.js"
   },
   "dependencies": {
-    "archiver": "^8.0.0",
+    "@aws-sdk/client-s3": "^3.1161.0",
     "cors": "^2.8.6",
     "express": "^5.3.0",
     "multer": "^2.5.0"

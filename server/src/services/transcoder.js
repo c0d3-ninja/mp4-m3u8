@@ -5,7 +5,10 @@ import { config } from '../config.js'
 
 // Adaptive bitrate ladder. `short` is the length of the frame's short side, so
 // the same ladder works for landscape (1920x1080) and vertical (1080x1920) video.
+// Bitrates are for ~30 fps; higher frame rates get more (see fpsFactor).
 const LADDER = [
+  { name: '2160p', short: 2160, videoKbps: 16000 },
+  { name: '1440p', short: 1440, videoKbps: 9000 },
   { name: '1080p', short: 1080, videoKbps: 5000 },
   { name: '720p', short: 720, videoKbps: 2800 },
   { name: '480p', short: 480, videoKbps: 1400 },
@@ -14,6 +17,22 @@ const LADDER = [
 const AUDIO_KBPS = 128
 
 const even = (n) => Math.max(2, Math.round(n / 2) * 2)
+
+// A rung within this many pixels of the source counts as "the source size" (1078p -> 1080p)
+const SNAP = 8
+
+/** "30000/1001" -> 29.97 */
+function parseRate(value) {
+  const [num, den = '1'] = String(value || '').split('/')
+  const fps = Number(num) / Number(den)
+  return Number.isFinite(fps) && fps > 0 && fps < 1000 ? fps : 0
+}
+
+/** 50/60 fps needs roughly 1.5x the bits of 25/30 fps for the same quality. */
+const fpsFactor = (fps) => (fps > 31 ? 1.5 : 1)
+
+/** Bitrate for a size that isn't on the ladder (e.g. 900p), scaled from 1080p. */
+const kbpsForShort = (short) => Math.max(400, Math.round(5000 * (short / 1080) ** 1.5))
 
 /**
  * Spawn a process and collect its output. Rejects with the tail of stderr on failure.
@@ -94,29 +113,39 @@ export async function probe(input, { signal } = {}) {
   const sideways = Math.abs(rotation) % 180 === 90
 
   const duration = Number(data.format?.duration) || Number(video.duration) || 0
+  // avg_frame_rate is the real rate for variable-frame-rate phone video; r_frame_rate is the fallback
+  const fps = parseRate(video.avg_frame_rate) || parseRate(video.r_frame_rate)
 
   return {
     width: sideways ? video.height : video.width,
     height: sideways ? video.width : video.height,
     duration,
+    fps,
     hasAudio: streams.some((s) => s.codec_type === 'audio'),
   }
 }
 
 /**
- * Pick the ladder rungs that are not larger than the source, keeping aspect ratio.
+ * The source's own resolution is always the top rendition (never upscaled, never capped), followed by
+ * every smaller ladder rung. A 1080p source -> 1080p/720p/480p/360p, 720p -> 720p/480p/360p,
+ * 900p -> 900p/720p/480p/360p, 4K -> 2160p/1440p/1080p/720p/480p/360p.
  */
-export function pickRenditions(width, height) {
+export function pickRenditions(width, height, fps = 30) {
   const short = Math.min(width, height)
-  let rungs = LADDER.filter((r) => r.short <= short + 8)
-  if (rungs.length === 0) {
-    // Tiny source: one rendition at its own size
-    rungs = [{ name: `${even(short)}p`, short: even(short), videoKbps: 600 }]
-  }
-  return rungs.map((r) => {
+  const factor = fpsFactor(fps)
+
+  // Top: the source size, named after the matching ladder rung when it is one (1078p -> "1080p")
+  const match = LADDER.find((r) => Math.abs(r.short - short) <= SNAP)
+  const top = match
+    ? { ...match, width: even(width), height: even(height) }
+    : { name: `${even(short)}p`, short: even(short), videoKbps: kbpsForShort(short), width: even(width), height: even(height) }
+
+  const lower = LADDER.filter((r) => r.short < top.short - SNAP).map((r) => {
     const scale = r.short / short
     return { ...r, width: even(width * scale), height: even(height * scale) }
   })
+
+  return [top, ...lower].map((r) => ({ ...r, videoKbps: Math.round(r.videoKbps * factor) }))
 }
 
 /**
@@ -127,7 +156,7 @@ export function pickRenditions(width, height) {
  */
 export async function transcodeToHls(input, outDir, { onProgress, signal } = {}) {
   const info = await probe(input, { signal })
-  const renditions = pickRenditions(info.width, info.height)
+  const renditions = pickRenditions(info.width, info.height, info.fps)
   const segment = config.hlsSegmentSeconds
 
   await fs.rm(outDir, { recursive: true, force: true })
@@ -220,6 +249,7 @@ export async function transcodeToHls(input, outDir, { onProgress, signal } = {})
     duration: info.duration,
     width: info.width,
     height: info.height,
+    fps: Math.round(info.fps * 1000) / 1000,
     hasAudio: info.hasAudio,
     poster,
     renditions: renditions.map((r) => ({

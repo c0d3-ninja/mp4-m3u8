@@ -1,5 +1,5 @@
-import { api } from '../api.js'
 import { formatBytes, formatDuration, hlsUrl, percent } from '../utils.js'
+import CloudflarePush from './CloudflarePush.jsx'
 
 /** Combine server state with local upload progress into one row state. */
 function rowState(file, upload, uploadsComplete) {
@@ -7,7 +7,8 @@ function rowState(file, upload, uploadsComplete) {
     case 'pending':
     case 'uploading':
       if (upload?.error) return { label: 'Upload failed', tone: 'error', progress: 0, detail: upload.error }
-      if (upload && !upload.done) return { label: `Uploading ${percent(upload.progress)}`, tone: 'active', progress: upload.progress * 0.1 }
+      if (upload && !upload.done)
+        return { label: `Uploading ${percent(upload.progress)}`, tone: 'active', progress: upload.progress * 0.1 }
       if (uploadsComplete) return { label: 'Not uploaded', tone: 'error', progress: 0 }
       return { label: 'Waiting to upload', tone: 'idle', progress: 0 }
     case 'queued':
@@ -32,25 +33,26 @@ export default function JobView({
   onFinishInterrupted,
   onNew,
   onPreview,
-  onDownload,
+  onOpenFolders,
+  r2Settings,
+  onR2Changed,
+  onOpenCloudflare,
 }) {
   const states = job.files.map((f) => rowState(f, uploads[f.id], job.uploadsComplete))
   const doneCount = job.files.filter((f) => f.status === 'done').length
   const failedCount = states.filter((s) => s.tone === 'error').length
   const total = job.files.length
 
-  const running = ['uploading', 'processing', 'zipping'].includes(job.status)
+  const running = ['uploading', 'processing'].includes(job.status)
   const interrupted = job.status === 'uploading' && !uploading
 
   let overall = states.reduce((sum, s) => sum + s.progress, 0) / total
-  if (job.status === 'zipping') overall = job.zipProgress
   if (job.status === 'done') overall = 1
 
   const headline = {
     uploading: interrupted ? 'Upload interrupted' : 'Uploading & converting…',
     processing: 'Converting…',
-    zipping: `Creating ${job.folderName}.zip… ${percent(job.zipProgress)}`,
-    done: 'Ready to download',
+    done: 'Conversion finished',
     failed: 'Conversion failed',
     cancelled: 'Cancelled',
   }[job.status]
@@ -78,9 +80,9 @@ export default function JobView({
             </button>
           )}
           {job.status === 'done' && (
-            <a className="btn btn-primary" href={api.downloadUrl(job.id)} download={job.zip.fileName} onClick={onDownload}>
-              ⬇ Download {job.zip.fileName} ({formatBytes(job.zip.size)})
-            </a>
+            <button type="button" className="btn btn-primary" onClick={() => onOpenFolders(job.id)}>
+              🗂️ Open in Folders
+            </button>
           )}
         </div>
       </div>
@@ -91,7 +93,19 @@ export default function JobView({
         </div>
       )}
 
+      {job.status === 'done' && job.output && (
+        <p className="banner success">
+          <span>
+            Saved to <code>{job.output.path}</code> ({formatBytes(job.output.size)})
+          </span>
+        </p>
+      )}
+
       {job.status === 'failed' && job.error && <p className="banner error">{job.error}</p>}
+
+      {job.status === 'done' && (
+        <CloudflarePush job={job} settings={r2Settings} onChanged={onR2Changed} onOpenSettings={onOpenCloudflare} />
+      )}
 
       {interrupted && (
         <div className="banner warn">
@@ -146,7 +160,9 @@ export default function JobView({
                 <button
                   type="button"
                   className="btn btn-ghost btn-sm"
-                  onClick={() => onPreview({ title: file.relativePath, src: hlsUrl(job, file.outputPath, 'master.m3u8') })}
+                  onClick={() =>
+                    onPreview({ title: file.relativePath, src: hlsUrl(job, file.outputPath, 'master.m3u8') })
+                  }
                 >
                   ▶ Preview
                 </button>
