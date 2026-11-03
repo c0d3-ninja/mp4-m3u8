@@ -82,7 +82,7 @@ export function busyOutputIds() {
 }
 
 // Finished jobs whose page was closed would otherwise stay in memory forever. Forgetting a done job
-// keeps its output in the downloads folder (removeJob only deletes the partial output of failed jobs).
+// keeps its output in the downloads folder (removeJob never deletes converted output).
 const IDLE_JOB_MS = 6 * 60 * 60 * 1000
 // A browser upload whose page was closed or navigated away (no polling, nothing arriving) for this long is finished
 // with the episodes that did arrive, so they are converted and get a manifest instead of waiting forever.
@@ -157,6 +157,7 @@ export function dramaSummary(data) {
   const str = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null)
   const category = Array.isArray(data.category) ? data.category.filter((c) => typeof c === 'string').join(', ') : data.category
   return {
+    id: dramaIdOf(data),
     dramaName: str(data.app_dramaName) || str(data.dramaName),
     imageUrl: str(data.imageUrl) || str(data.posterImageUrl),
     category: str(category),
@@ -179,7 +180,10 @@ const outputIdOf = (drama) => dramaIdOf(drama) ?? crypto.randomUUID()
 
 export const MAX_PARALLEL = 8
 
-/** Episodes converted at once: software only (1-8, default CONCURRENCY); hardware always 1 (one media engine). */
+/**
+ * Episodes converted at once: software and NVIDIA 1-8 (default CONCURRENCY; NVIDIA also waits for free encode sessions),
+ * Apple hardware always 1 (one media engine).
+ */
 export function resolveParallel(encoder, value) {
   if (encoder === 'hardware') return 1
   const n = Math.floor(Number(value ?? config.concurrency))
@@ -205,7 +209,7 @@ export function createJob({ folderName, files, drama: info, fromDisk = false, en
   if (busyJobIds().has(id)) {
     throw new HttpError(409, `Drama ${id} is already being converted or uploaded. Wait for it, or cancel it first.`)
   }
-  // Converting the same drama again replaces its earlier output (writeDramaInfo clears the folder). Forget the old
+  // Converting the same drama again resumes its earlier output (writeDramaInfo keeps finished episodes). Forget the old
   // job so its idle cleanup can never touch the new one.
   jobs.delete(id)
   const usedOutputs = new Set()
@@ -255,9 +259,9 @@ export function createJob({ folderName, files, drama: info, fromDisk = false, en
     source: folderName.trim(),
     // Converted straight from "<downloads>/<source>/": the MP4s are read in place and never deleted
     fromDisk,
-    // 'hardware' | 'software', fixed when Convert is clicked (changing the choice later doesn't affect this job)
+    // 'hardware' | 'nvenc' | 'software', fixed when Convert is clicked (changing the choice later doesn't affect this job)
     encoder: resolveEncoder(encoder),
-    // Episodes converting at once (software only), also fixed at the Convert click
+    // Episodes converting at once (software / NVIDIA), also fixed at the Convert click
     parallel: resolveParallel(resolveEncoder(encoder), parallel),
     status: 'uploading', // uploading → processing → done | failed | cancelled
     createdAt: new Date().toISOString(),
@@ -300,6 +304,7 @@ export function toPublic(job) {
     error: job.error,
     output: job.output,
     r2: job.r2,
+    resumed: job.resumed ?? null,
     hlsBaseUrl: `/hls/${job.id}`,
     files: job.files.map((f) => ({
       id: f.id,
@@ -311,6 +316,7 @@ export function toPublic(job) {
       // Seconds this episode took; while converting, how long it has been converting so far
       seconds: f.status === 'converting' && f.startedAt ? (Date.now() - f.startedAt) / 1000 : f.seconds ?? null,
       error: f.error,
+      reused: Boolean(f.reused),
       result: f.result,
     })),
   }
@@ -318,9 +324,10 @@ export function toPublic(job) {
 
 /** "converted/<id>/drama.json" next to the episodes: { cfId: <id>, ...the source folder's drama.json }. */
 export async function writeDramaInfo(job) {
-  // A new conversion of the same drama starts from an empty folder (createJob refused it while that one was busy)
-  await fsp.rm(job.workDir, { recursive: true, force: true, maxRetries: 3 })
+  // An earlier (stopped, interrupted or finished) conversion of the same drama is resumed, never wiped:
+  // its finished episodes are kept and only the last episode folder (possibly half-converted) is redone.
   await fsp.mkdir(job.workDir, { recursive: true })
+  await resumeFromExisting(job)
   // "cfId" = this conversion's folder name (and default bucket folder), first in the file: the drama's own "id",
   // or a random UUID for a drama without one. Every other key is copied from the source drama.json.
   const { cfId: _old, ...rest } = job.drama || {}
@@ -335,8 +342,107 @@ export async function writeDramaInfo(job) {
   }))
 }
 
+const EPISODE_INFO = '.episode.json'
+const outDirOf = (job, file) => path.join(job.outputRoot, ...file.outputPath.split('/'))
+
+/**
+ * Resume into an existing "converted/<id>/" folder: the last episode folder there is deleted (it may have been cut
+ * off mid-conversion), as is any other folder whose playlists are unfinished; every other finished episode is kept and
+ * marked done, so only the rest is converted. The old manifest.json is removed (rewritten when the job finishes).
+ */
+async function resumeFromExisting(job) {
+  await fsp.rm(path.join(job.outputRoot, 'manifest.json'), { force: true })
+    const existing = []
+  for (const [index, file] of job.files.entries()) {
+    if (await exists(outDirOf(job, file))) existing.push(index)
+  }
+  if (existing.length === 0) return
+  const last = existing[existing.length - 1]
+  const kept = []
+  for (const index of existing) {
+    const file = job.files[index]
+    const dir = outDirOf(job, file)
+    const result = index === last ? null : await finishedEpisode(dir)
+    if (!result) {
+      await fsp.rm(dir, { recursive: true, force: true, maxRetries: 3 })
+      continue
+    }
+    file.status = 'done'
+    file.progress = 1
+    file.reused = true
+    file.result = result.result
+    file.seconds = result.seconds ?? null
+    kept.push(file.outputPath)
+  }
+  job.resumed = { kept: kept.length, redone: job.files[last].outputPath }
+  console.log(`[${job.folderName}] resuming: keeping ${kept.length} converted episode(s), redoing from "${job.files[last].outputPath}"`)
+}
+
+async function exists(p) {
+  try {
+    await fsp.access(p)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function readJsonFile(p) {
+  try {
+    return JSON.parse(await fsp.readFile(p, 'utf8'))
+  } catch {
+    return null
+  }
+}
+
+/** { result, seconds } of a fully converted episode folder, or null when it is incomplete. */
+async function finishedEpisode(dir) {
+  let master
+  try {
+    master = await fsp.readFile(path.join(dir, 'master.m3u8'), 'utf8')
+  } catch {
+    return null
+  }
+  // Every rendition playlist must be complete (ffmpeg writes #EXT-X-ENDLIST last)
+  const lines = master.split(/\r?\n/)
+  const renditions = []
+  let duration = 0
+  for (let i = 0; i < lines.length; i++) {
+    if (!lines[i].startsWith('#EXT-X-STREAM-INF:')) continue
+    const uri = lines[i + 1]?.trim()
+    if (!uri) return null
+    let playlist
+    try {
+      playlist = await fsp.readFile(path.join(dir, ...uri.split('/')), 'utf8')
+    } catch {
+      return null
+    }
+    if (!playlist.includes('#EXT-X-ENDLIST')) return null
+    const attr = (name) => lines[i].match(new RegExp(`${name}=([^,]+)`))?.[1]
+    const [w, h] = (attr('RESOLUTION') || '0x0').split('x').map(Number)
+    renditions.push({ name: uri.split('/')[0], width: w, height: h, bandwidth: Number(attr('BANDWIDTH')) || 0 })
+    if (renditions.length === 1) {
+      duration = [...playlist.matchAll(/#EXTINF:([\d.]+)/g)].reduce((sum, m) => sum + Number(m[1]), 0)
+    }
+  }
+  if (renditions.length === 0) return null
+  // Saved when the episode finished (newer conversions); otherwise rebuilt from the playlists
+  const saved = await readJsonFile(path.join(dir, EPISODE_INFO))
+  if (saved?.result) return { result: saved.result, seconds: saved.seconds }
+  const top = renditions.reduce((a, b) => (a.width * a.height >= b.width * b.height ? a : b))
+  return {
+    result: { duration, width: top.width, height: top.height, fps: null, hasAudio: true, renditions },
+    seconds: null,
+  }
+}
+
 /** Called after a file finished uploading to disk (or, with keepInput, for a file already in the downloads folder). */
 export function markUploaded(job, file, inputPath, { keepInput = false } = {}) {
+  // Already converted in an earlier run (kept when resuming): nothing to do, drop an uploaded copy
+  if (file.reused) {
+    if (!keepInput) fsp.rm(inputPath, { force: true }).catch(() => {})
+    return
+  }
   file.inputPath = inputPath
   file.keepInput = keepInput
   file.status = 'queued'
@@ -391,7 +497,7 @@ async function convert(job, file) {
   file.startedAt = Date.now()
   file.seconds = null
   job.startedAt ??= file.startedAt
-  const outDir = path.join(job.outputRoot, ...file.outputPath.split('/'))
+  const outDir = outDirOf(job, file)
 
   try {
     file.result = await transcodeToHls(file.inputPath, outDir, {
@@ -402,9 +508,13 @@ async function convert(job, file) {
         file.progress = p
       },
     })
+    file.seconds = (Date.now() - file.startedAt) / 1000
+    // Lets a later "Convert again" / resume keep this episode without re-reading it
+    await fsp
+      .writeFile(path.join(outDir, EPISODE_INFO), JSON.stringify({ result: file.result, seconds: file.seconds }))
+      .catch(() => {})
     file.status = 'done'
     file.progress = 1
-    file.seconds = (Date.now() - file.startedAt) / 1000
   } catch (err) {
     if (job.cancelled) return
     file.status = 'error'
@@ -495,7 +605,7 @@ function buildManifest(job) {
       width: f.result.width,
       height: f.result.height,
       fps: f.result.fps,
-      convertSeconds: Math.round(f.seconds * 10) / 10,
+      convertSeconds: f.seconds == null ? null : Math.round(f.seconds * 10) / 10,
       renditions: f.result.renditions,
     })),
     failed: job.files
@@ -606,11 +716,10 @@ export function cancelR2Upload(job) {
 }
 
 /**
- * Cancel (if running) and forget a job. Finished output stays in the downloads folder
- * (delete it from the Folders tab); a cancelled or failed job's partial output is removed.
+ * Cancel (if running) and forget a job. The output folder is always kept, also when stopped or failed: converting
+ * the drama again resumes from it (delete it from the Folders tab to start over).
  */
 export async function removeJob(job) {
-  const keepOutput = job.status === 'done'
   job.cancelled = true
   job.r2Controller?.abort()
   if (!['done', 'failed'].includes(job.status)) job.status = 'cancelled'
@@ -625,7 +734,7 @@ export async function removeJob(job) {
   await Promise.allSettled([...job.running])
 
   await Promise.all(
-    (replaced ? [] : [job.uploadDir, ...(keepOutput ? [] : [job.workDir])]).map((dir) =>
+    (replaced ? [] : [job.uploadDir]).map((dir) =>
       fsp.rm(dir, { recursive: true, force: true, maxRetries: 3 }).catch(() => {}),
     ),
   )

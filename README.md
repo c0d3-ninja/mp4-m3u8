@@ -150,6 +150,8 @@ including everything inside it, or a single file.
 | `HLS_SEGMENT_SECONDS` | `4` | Segment length |
 | `CONCURRENCY` | `1` | Episodes converted at the same time, across all conversions |
 | `FFMPEG_CPU_PERCENT` | `80` | CPU share for ffmpeg. On macOS it is a thread budget (average stays under it, short peaks can go over) plus lower priority; on Linux ffmpeg is also pinned to that many cores with `taskset`, using the container's real CPU quota |
+| `NVENC_PRESET` | `p5` | NVIDIA GPU encoding speed/quality: `p1` (fastest) … `p7` (best) |
+| `NVENC_SESSIONS` | `8` | NVIDIA encodes running at once (one per quality per episode). GeForce cards allow 8; episodes wait for free sessions |
 | `FFMPEG_PATH` / `FFPROBE_PATH` | on `PATH` | Custom ffmpeg location |
 | `DOWNLOADS_DIR` | `~/Downloads` | Folder shown in the Folders tab |
 

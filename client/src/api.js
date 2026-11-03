@@ -27,6 +27,8 @@ async function request(method, url, body, extraHeaders) {
 }
 
 export const api = {
+  // { hardware, nvenc, nvencGpu, software }: encoders this server can use
+  encoders: () => request('GET', '/api/health/encoders'),
   createJob: (folderName, files, drama, encoder, parallel) =>
     request('POST', '/api/jobs', { folderName, files, drama, encoder, parallel }),
   getJob: (id) => request('GET', `/api/jobs/${id}`),

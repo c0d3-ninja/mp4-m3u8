@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { library } from '../api.js'
+import CopyId from './CopyId.jsx'
 import { formatBytes, formatGaps, gapCount, naturalCompare } from '../utils.js'
 
 const formatDate = (iso) =>
@@ -64,7 +65,7 @@ export default function LibrarySources({ active, onStarted, onOpenJob, encoder, 
     }
     if (
       label.converted &&
-      !window.confirm(`"${src.name}" was already converted. Convert it again into a new folder?`)
+      !window.confirm(`"${src.name}" was already converted. Convert again? Finished episodes are kept; only the last one is redone, plus any missing.`)
     ) {
       return
     }
@@ -117,6 +118,11 @@ export default function LibrarySources({ active, onStarted, onOpenJob, encoder, 
                     </span>
                     <span className={`chip ${label.tone}`}>{label.text}</span>
                   </div>
+                  {src.drama?.id ? (
+                    <CopyId id={src.drama.id} />
+                  ) : (
+                    <span className="warn-text small">No id in drama.json (the converted folder gets a random name)</span>
+                  )}
                   <span className="muted small">
                     {src.totalEpisodes ? (
                       <span className={src.complete ? '' : 'warn-text'}>

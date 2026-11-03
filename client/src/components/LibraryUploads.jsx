@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import CopyId from './CopyId.jsx'
 import { library, r2 as r2Api } from '../api.js'
 import { formatBytes, formatGaps, gapCount, isR2Configured, percent } from '../utils.js'
 
@@ -180,10 +181,11 @@ export default function LibraryUploads({ active, settings, refreshKey = 0 }) {
                       <span className={`chip ${label.tone}`}>{label.text}</span>
                     )}
                   </div>
+                  <CopyId id={item.id} />
                   <span className="muted small">
-                    <code>{item.id}</code>
                     {item.episodes != null &&
-                      ` · ${item.episodes} ${item.episodes === 1 ? 'episode' : 'episodes'}`} · {formatBytes(item.size)}
+                      `${item.episodes} ${item.episodes === 1 ? 'episode' : 'episodes'} · `}
+                    {formatBytes(item.size)}
                     {item.drama?.category && ` · ${item.drama.category}`}
                     {!status && label.detail && ` · ${label.detail}`}
                   </span>

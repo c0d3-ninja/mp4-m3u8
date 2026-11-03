@@ -307,13 +307,13 @@ export const storedTab = {
   },
 }
 
-/** Convert tab's encoding choice, remembered in this browser: 'hardware' (default) | 'software'. */
+/** Convert tab's encoding choice, remembered in this browser: 'hardware' (Apple, default) | 'nvenc' | 'software'. */
 const ENCODER_KEY = 'mp4-m3u8:encoder'
 export const storedEncoder = {
   get() {
     try {
       const v = localStorage.getItem(ENCODER_KEY)
-      return v === 'software' ? 'software' : 'hardware'
+      return ['software', 'nvenc'].includes(v) ? v : 'hardware'
     } catch {
       return 'hardware'
     }
@@ -327,7 +327,7 @@ export const storedEncoder = {
   },
 }
 
-/** Software encoding: episodes converted at once (1-8), remembered in this browser. */
+/** Software / NVIDIA encoding: episodes converted at once (1-8), remembered in this browser. */
 const PARALLEL_KEY = 'mp4-m3u8:parallel'
 export const MAX_PARALLEL = 8
 export const clampParallel = (v) => Math.min(MAX_PARALLEL, Math.max(1, Math.floor(Number(v)) || 1))
@@ -347,3 +347,6 @@ export const storedParallel = {
     }
   },
 }
+
+/** Encoder names shown in the UI. */
+export const ENCODER_LABELS = { hardware: 'Apple hardware', nvenc: 'NVIDIA GPU', software: 'Software' }

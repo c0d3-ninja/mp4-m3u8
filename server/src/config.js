@@ -30,6 +30,10 @@ export const config = {
   concurrency: Math.floor(positiveNumber(process.env.CONCURRENCY, 1)),
   // Share of the machine's CPU ffmpeg may use (1-100). The rest stays free for the server, the browser and the Mac.
   ffmpegCpuPercent: positiveNumber(process.env.FFMPEG_CPU_PERCENT, 80),
+  // NVIDIA (NVENC) encoding: speed/quality preset p1 (fastest) … p7 (best), and how many encode sessions may run at
+  // once (each quality of each episode is one session; GeForce cards allow 8, pro cards more)
+  nvencPreset: process.env.NVENC_PRESET || 'p5',
+  nvencSessions: Math.floor(positiveNumber(process.env.NVENC_SESSIONS, 8)),
 
   uploadsDir: path.join(root, 'storage', 'uploads'),
 

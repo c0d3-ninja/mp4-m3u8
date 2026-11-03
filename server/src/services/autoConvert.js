@@ -19,7 +19,7 @@ const state = {
   skipped: new Set(), // folders the user chose to skip
   message: null, // e.g. "All folders are converted"
   retry: null, // folder to convert again first on Retry (its last conversion had errors)
-  encoder: null, // 'hardware' | 'software', set by Start / Retry; every folder of the run uses it
+  encoder: null, // 'hardware' | 'nvenc' | 'software', set by Start / Retry; every folder of the run uses it
   parallel: null, // episodes at once (software), set the same way
 }
 

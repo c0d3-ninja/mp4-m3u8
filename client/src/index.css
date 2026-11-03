@@ -201,6 +201,11 @@ select { background: var(--surface-2); color: var(--text); border: 1px solid var
 .encoder-option.selected { border-color: var(--accent); }
 .encoder-option input { margin-top: 3px; accent-color: var(--accent); }
 .encoder-option > span { display: grid; gap: 2px; }
+.encoder-option.unavailable { opacity: 0.55; cursor: not-allowed; }
 .parallel-input { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
 .parallel-input input { width: 64px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); font: inherit; }
 .parallel-input input:disabled { opacity: 0.5; }
+
+/* Drama id with a copy button */
+.copy-id { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 13px; }
+.btn-xs { padding: 2px 8px; font-size: 12px; min-height: 0; }

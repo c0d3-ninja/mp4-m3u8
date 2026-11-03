@@ -99,19 +99,19 @@ export default function App() {
   const [sourcesRefresh, setSourcesRefresh] = useState(0)
   const refreshSources = useCallback(() => setSourcesRefresh((n) => n + 1), [])
   const [r2Settings, setR2Settings] = useState(() => r2Store.load())
-  // Hardware / software encoding: remembered, and read only when a Convert button is clicked
+  // Apple hardware / NVIDIA GPU / software encoding: remembered, and read only when a Convert button is clicked
   const [encoder, setEncoderState] = useState(() => storedEncoder.get())
   const setEncoder = (value) => {
     setEncoderState(value)
     storedEncoder.set(value)
   }
-  // Software only: episodes converted at once, also read when Convert is clicked (hardware always converts 1)
+  // Software / NVIDIA: episodes converted at once, also read when Convert is clicked (Apple hardware always converts 1)
   const [parallel, setParallelState] = useState(() => storedParallel.get())
   const setParallel = (value) => {
     setParallelState(value)
     storedParallel.set(value)
   }
-  const parallelFor = encoder === 'software' ? parallel : 1
+  const parallelFor = encoder === 'hardware' ? 1 : parallel
 
   function switchTab(next) {
     if (next !== 'folders') setFoldersStart('')
@@ -266,6 +266,11 @@ export default function App() {
     // Upload one episode at a time; the server starts converting each as soon as it arrives.
     for (const f of created.files) {
       if (controller.signal.aborted) break
+      // Converted in an earlier run of this drama (resumed): nothing to upload
+      if (f.reused) {
+        setUpload(f.id, { progress: 1, done: true })
+        continue
+      }
       const file = fileByPath.get(f.relativePath)
       if (!file) {
         setUpload(f.id, { progress: 0, error: 'File not found in selection' })
@@ -340,7 +345,7 @@ export default function App() {
   }
 
   async function cancelJob() {
-    if (!window.confirm('Cancel this conversion? Episodes converted so far will be discarded.')) return
+    if (!window.confirm('Stop this conversion? Episodes converted so far are kept; converting this drama again continues from where it stopped.')) return
     uploadAbort.current?.abort()
     try {
       await api.removeJob(job.id)

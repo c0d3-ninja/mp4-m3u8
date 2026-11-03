@@ -7,25 +7,96 @@ import { spawnSync } from 'node:child_process'
 import { encoderThreads, helperThreads, limitedCommand } from './cpu.js'
 
 // Video encoder, chosen per conversion in the Convert tab:
-//   'hardware' = h264_videotoolbox (Apple's media engine: ~2.5x faster, CPU mostly free, macOS only)
-//   'software' = libx264 (CPU; a little better quality for the size, works everywhere)
-export const ENCODERS = ['hardware', 'software']
+//   'hardware' = h264_videotoolbox (Apple's media engine, macOS only; one engine, so one episode at a time)
+//   'nvenc'    = h264_nvenc (NVIDIA GPU, Linux/Windows): decode, resize and encode on the GPU, several episodes at once
+//   'software' = libx264 (CPU; works everywhere)
+export const ENCODERS = ['hardware', 'nvenc', 'software']
 export const DEFAULT_ENCODER = 'hardware'
 
-let hardwareAvailable
-/** Whether this ffmpeg has the VideoToolbox H.264 encoder (checked once). */
-export function hasHardwareEncoder() {
-  if (hardwareAvailable === undefined) {
-    const out = spawnSync(config.ffmpegPath, ['-hide_banner', '-encoders'], { encoding: 'utf8' })
-    hardwareAvailable = !out.error && /\bh264_videotoolbox\b/.test(out.stdout || '')
-  }
-  return hardwareAvailable
+/** Runs ffmpeg with `args` once and tells whether it succeeded (used to test what this machine can really do). */
+function ffmpegWorks(args) {
+  const out = spawnSync(config.ffmpegPath, ['-hide_banner', '-loglevel', 'error', ...args], {
+    encoding: 'utf8',
+    timeout: 20000,
+  })
+  return !out.error && out.status === 0
 }
 
-/** 'hardware' | 'software' from a request value; hardware falls back to software where it doesn't exist. */
+let available
+/**
+ * { hardware, nvenc, nvencGpu } on this server (checked once). NVENC is test-encoded for real, because ffmpeg can list
+ * h264_nvenc without an NVIDIA GPU or driver. nvencGpu = decoding and resizing on the GPU work too (CUDA + scale_cuda).
+ */
+export function availableEncoders() {
+  if (!available) {
+    const out = spawnSync(config.ffmpegPath, ['-hide_banner', '-encoders'], { encoding: 'utf8' })
+    const list = out.error ? '' : out.stdout || ''
+    const hardware = /\bh264_videotoolbox\b/.test(list)
+    const nvenc =
+      /\bh264_nvenc\b/.test(list) &&
+      ffmpegWorks(['-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=25', '-frames:v', '5', '-c:v', 'h264_nvenc', '-f', 'null', '-'])
+    // Upload + resize on the GPU (the real pipeline also decodes there; that falls back by itself when it fails)
+    const nvencGpu =
+      nvenc &&
+      ffmpegWorks([
+        '-init_hw_device', 'cuda=gpu', '-filter_hw_device', 'gpu',
+        '-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=25', '-frames:v', '5',
+        '-vf', 'format=yuv420p,hwupload_cuda,scale_cuda=320:180:format=yuv420p',
+        '-c:v', 'h264_nvenc', '-f', 'null', '-',
+      ])
+    available = { hardware, nvenc, nvencGpu }
+    console.log(
+      `Encoders: Apple hardware ${hardware ? 'yes' : 'no'} · NVIDIA NVENC ${nvenc ? (nvencGpu ? 'yes (full GPU)' : 'yes (CPU decoding)') : 'no'} · software yes`,
+    )
+  }
+  return available
+}
+
+export const hasHardwareEncoder = () => availableEncoders().hardware
+
+/** 'hardware' | 'nvenc' | 'software' from a request value; one this server doesn't have falls back to software. */
 export function resolveEncoder(value) {
   const wanted = ENCODERS.includes(value) ? value : DEFAULT_ENCODER
-  return wanted === 'hardware' && !hasHardwareEncoder() ? 'software' : wanted
+  if (wanted === 'software') return wanted
+  return availableEncoders()[wanted] ? wanted : 'software'
+}
+
+// NVENC sessions in use. Each quality of each episode is one session; GeForce cards refuse more than 8 at once
+// (NVENC_SESSIONS), so an episode waits here until its renditions fit.
+let nvencUsed = 0
+const nvencWaiting = []
+function acquireNvenc(count, signal) {
+  const need = Math.min(count, config.nvencSessions)
+  return new Promise((resolve, reject) => {
+    const entry = {
+      need,
+      grant: () => {
+        signal?.removeEventListener('abort', onAbort)
+        nvencUsed += need
+        let released = false
+        resolve(() => {
+          if (released) return
+          released = true
+          nvencUsed -= need
+          drainNvenc()
+        })
+      },
+    }
+    const onAbort = () => {
+      const i = nvencWaiting.indexOf(entry)
+      if (i >= 0) nvencWaiting.splice(i, 1)
+      reject(abortError())
+    }
+    if (signal?.aborted) return onAbort()
+    signal?.addEventListener('abort', onAbort, { once: true })
+    nvencWaiting.push(entry)
+    drainNvenc()
+  })
+}
+function drainNvenc() {
+  while (nvencWaiting.length > 0 && nvencUsed + nvencWaiting[0].need <= config.nvencSessions) {
+    nvencWaiting.shift().grant()
+  }
 }
 
 // Adaptive bitrate ladder. `short` is the length of the frame's short side, so
@@ -162,6 +233,11 @@ export async function probe(input, { signal } = {}) {
     duration,
     fps,
     hasAudio: streams.some((s) => s.codec_type === 'audio'),
+    rotation,
+    codec: video.codec_name,
+    pixFmt: video.pix_fmt,
+    // Square pixels ("1:1", or not stated)
+    squarePixels: !video.sample_aspect_ratio || ['1:1', '0:1', 'N/A'].includes(video.sample_aspect_ratio),
   }
 }
 
@@ -197,19 +273,79 @@ export async function transcodeToHls(input, outDir, { onProgress, signal, encode
   const info = await probe(input, { signal })
   // Software: x264 within the CPU limit (FFMPEG_CPU_PERCENT), at low priority; with `parallel` episodes converting at
   // once, each gets an equal share of that limit.
-  // Hardware: decoding and resizing on the CPU, encoding on the media engine, with no limits at all: every thread
-  // ffmpeg wants, normal priority, no CPU pinning.
-  const hardware = resolveEncoder(encoder) === 'hardware'
+  // Hardware (Apple): decoding and resizing on the CPU, encoding on the media engine, with no limits at all.
+  // NVIDIA: decoding, resizing and encoding on the GPU when the source allows it (see gpuDecodable), no CPU limits.
+  const used = resolveEncoder(encoder)
   const renditions = pickRenditions(info.width, info.height, info.fps)
+
+  if (used !== 'nvenc') {
+    await encodeHls(input, outDir, info, renditions, used === 'hardware' ? 'videotoolbox' : 'x264', { onProgress, signal, parallel })
+  } else {
+    const release = await acquireNvenc(renditions.length, signal)
+    try {
+      const gpu = availableEncoders().nvencGpu && gpuDecodable(info)
+      try {
+        await encodeHls(input, outDir, info, renditions, gpu ? 'nvenc-gpu' : 'nvenc-cpu', { onProgress, signal, parallel })
+      } catch (err) {
+        if (!gpu || signal?.aborted) throw err
+        // e.g. a codec the GPU can't decode: same NVENC encode, decoding and resizing on the CPU
+        console.warn(`GPU decoding failed for ${path.basename(input)}, decoding on the CPU instead: ${err.message}`)
+        await encodeHls(input, outDir, info, renditions, 'nvenc-cpu', { onProgress, signal, parallel })
+      }
+    } finally {
+      release()
+    }
+  }
+
+  await fs.access(path.join(outDir, 'master.m3u8')).catch(() => {
+    throw new Error('ffmpeg finished but master.m3u8 was not created')
+  })
+
+  return {
+    duration: info.duration,
+    width: info.width,
+    height: info.height,
+    fps: Math.round(info.fps * 1000) / 1000,
+    hasAudio: info.hasAudio,
+    encoder: used,
+    renditions: renditions.map((r) => ({
+      name: r.name,
+      width: r.width,
+      height: r.height,
+      bandwidth: (r.videoKbps + (info.hasAudio ? AUDIO_KBPS : 0)) * 1000,
+    })),
+  }
+}
+
+/**
+ * Sources the GPU can decode and resize as they are: common codecs, 8-bit 4:2:0, not rotated (rotating needs a CPU
+ * filter, which would bounce every frame back from the GPU), square pixels (setsar is not applied on the GPU).
+ */
+const gpuDecodable = (info) =>
+  ['h264', 'hevc', 'vp9', 'av1', 'mpeg2video', 'mpeg4', 'vp8'].includes(info.codec) &&
+  ['yuv420p', 'yuvj420p', 'nv12'].includes(info.pixFmt) &&
+  Math.round(info.rotation) % 360 === 0 &&
+  info.squarePixels
+
+/**
+ * One ffmpeg run: decode once, resize to every rendition, encode, write HLS into outDir.
+ * mode: 'x264' | 'videotoolbox' | 'nvenc-gpu' (all on the GPU) | 'nvenc-cpu' (CPU decode/resize, GPU encode)
+ */
+async function encodeHls(input, outDir, info, renditions, mode, { onProgress, signal, parallel }) {
   const segment = config.hlsSegmentSeconds
+  const x264 = mode === 'x264'
+  const nvenc = mode.startsWith('nvenc')
+  const onGpu = mode === 'nvenc-gpu'
 
   await fs.rm(outDir, { recursive: true, force: true })
   await fs.mkdir(outDir, { recursive: true })
   for (const r of renditions) await fs.mkdir(path.join(outDir, r.name), { recursive: true })
 
-  // One decode, split into every rendition
-  const scaled = renditions.map(
-    (r, i) => `[s${i}]scale=${r.width}:${r.height}:flags=bicubic,setsar=1,format=yuv420p[v${i}]`,
+  // One decode, split into every rendition (on the GPU: frames stay in GPU memory, resized there by scale_cuda)
+  const scaled = renditions.map((r, i) =>
+    onGpu
+      ? `[s${i}]scale_cuda=${r.width}:${r.height}:format=yuv420p[v${i}]`
+      : `[s${i}]scale=${r.width}:${r.height}:flags=bicubic,setsar=1,format=yuv420p[v${i}]`,
   )
   const filter =
     renditions.length === 1
@@ -220,22 +356,22 @@ export async function transcodeToHls(input, outDir, { onProgress, signal, encode
     '-hide_banner', '-nostdin', '-y',
     '-loglevel', 'error',
     '-progress', 'pipe:1', '-nostats',
-    // CPU limit (FFMPEG_CPU_PERCENT): decoder and scale filters get a small share, the encoders split the rest
-    // Thread counts: 0 = as many as ffmpeg wants (hardware); otherwise a share of the CPU limit
-    '-threads', hardware ? '0' : String(helperThreads(parallel)),
+    // x264: CPU limit (FFMPEG_CPU_PERCENT), decoder and scale filters get a small share, the encoders split the rest.
+    // Apple / NVIDIA: 0 = as many threads as ffmpeg wants
+    '-threads', x264 ? String(helperThreads(parallel)) : '0',
+    ...(onGpu ? ['-hwaccel', 'cuda', '-hwaccel_output_format', 'cuda'] : []),
     '-i', input,
-    '-filter_complex_threads', hardware ? '0' : String(helperThreads(parallel)),
+    '-filter_complex_threads', x264 ? String(helperThreads(parallel)) : '0',
     '-filter_complex', filter,
   ]
 
   const threads = encoderThreads(renditions, parallel)
   renditions.forEach((r, i) => {
+    args.push('-map', `[v${i}]`)
+    if (x264) args.push(`-c:v:${i}`, 'libx264', `-threads:v:${i}`, String(threads[i]))
+    else if (nvenc) args.push(`-c:v:${i}`, 'h264_nvenc')
+    else args.push(`-c:v:${i}`, 'h264_videotoolbox')
     args.push(
-      '-map', `[v${i}]`,
-      // Hardware encoding runs on the media engine, so the CPU thread split only applies to x264
-      ...(hardware
-        ? [`-c:v:${i}`, 'h264_videotoolbox']
-        : [`-c:v:${i}`, 'libx264', `-threads:v:${i}`, String(threads[i])]),
       `-b:v:${i}`, `${r.videoKbps}k`,
       `-maxrate:v:${i}`, `${Math.round(r.videoKbps * 1.07)}k`,
       `-bufsize:v:${i}`, `${Math.round(r.videoKbps * 1.5)}k`,
@@ -243,9 +379,21 @@ export async function transcodeToHls(input, outDir, { onProgress, signal, encode
     if (info.hasAudio) args.push('-map', '0:a:0')
   })
 
+  if (x264) {
+    // Speed preset, and no extra keyframes on scene cuts
+    args.push('-preset', config.ffmpegPreset, '-sc_threshold', '0')
+  } else if (nvenc) {
+    // Quality-tuned VBR; keyframes only where forced (an IDR at every segment start), none on scene cuts, so segments
+    // line up across renditions
+    args.push(
+      '-preset', config.nvencPreset, '-tune', 'hq', '-rc', 'vbr',
+      '-spatial-aq', '1', '-no-scenecut', '1', '-forced-idr', '1',
+      '-g', String(Math.max(1, Math.round((info.fps || 30) * segment * 10))),
+    )
+  } else {
+    args.push('-realtime', '0')
+  }
   args.push(
-    // x264 only: speed preset, and no extra keyframes on scene cuts (VideoToolbox adds none of its own)
-    ...(hardware ? ['-realtime', '0'] : ['-preset', config.ffmpegPreset, '-sc_threshold', '0']),
     '-profile:v', 'high',
     // Keyframes at exact segment boundaries, identical across renditions,
     // so players can switch quality cleanly between segments.
@@ -278,7 +426,7 @@ export async function transcodeToHls(input, outDir, { onProgress, signal, encode
   await run(config.ffmpegPath, args, {
     cwd: outDir,
     signal,
-    unrestricted: hardware,
+    unrestricted: !x264,
     onStdout(chunk) {
       buffer += chunk
       const lines = buffer.split('\n')
@@ -291,23 +439,4 @@ export async function transcodeToHls(input, outDir, { onProgress, signal, encode
       }
     },
   })
-
-  await fs.access(path.join(outDir, 'master.m3u8')).catch(() => {
-    throw new Error('ffmpeg finished but master.m3u8 was not created')
-  })
-
-  return {
-    duration: info.duration,
-    width: info.width,
-    height: info.height,
-    fps: Math.round(info.fps * 1000) / 1000,
-    hasAudio: info.hasAudio,
-    encoder: hardware ? 'hardware' : 'software',
-    renditions: renditions.map((r) => ({
-      name: r.name,
-      width: r.width,
-      height: r.height,
-      bandwidth: (r.videoKbps + (info.hasAudio ? AUDIO_KBPS : 0)) * 1000,
-    })),
-  }
 }

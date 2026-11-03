@@ -12,9 +12,12 @@ import moveRouter from './routes/move.js'
 import libraryRouter from './routes/library.js'
 import autoRouter from './routes/auto.js'
 import { getJob, prepareStorage } from './services/jobs.js'
+import { availableEncoders } from './services/transcoder.js'
 import { describeCpuLimit } from './services/cpu.js'
 
 await prepareStorage()
+// Test the encoders once now (logs what this machine has), not on the first conversion
+availableEncoders()
 
 const app = express()
 
