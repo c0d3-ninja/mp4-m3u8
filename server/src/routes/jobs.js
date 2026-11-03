@@ -36,7 +36,7 @@ function loadJob(req, res, next) {
   next()
 }
 
-// Create a job: { folderName, imageUrl?, files: [{ relativePath, size }] }
+// Create a job: { folderName, imageUrl?, category?, files: [{ relativePath, size }] }
 router.post('/', async (req, res) => {
   const job = createJob(req.body)
   try {

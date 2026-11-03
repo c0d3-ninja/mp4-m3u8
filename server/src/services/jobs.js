@@ -88,11 +88,20 @@ function cleanImageUrl(value) {
   return url.href
 }
 
-export function createJob({ folderName, files, imageUrl } = {}) {
+/** Optional category, e.g. "Romance": trimmed, inner whitespace collapsed; "" -> null. */
+function cleanCategory(value) {
+  const v = String(value ?? '').trim().replace(/\s+/g, ' ')
+  if (!v) return null
+  if (v.length > 100) throw new HttpError(400, 'Category is too long (max 100 characters)')
+  return v
+}
+
+export function createJob({ folderName, files, imageUrl, category } = {}) {
   if (typeof folderName !== 'string' || !folderName.trim()) {
     throw new HttpError(400, 'folderName is required')
   }
   const image = cleanImageUrl(imageUrl)
+  const dramaCategory = cleanCategory(category)
   if (!Array.isArray(files) || files.length === 0) {
     throw new HttpError(400, 'Select at least one video')
   }
@@ -150,7 +159,7 @@ export function createJob({ folderName, files, imageUrl } = {}) {
     createdAt: new Date().toISOString(),
     lastSeen: Date.now(),
     // Written to "<downloads>/<uuid>/drama.json" as soon as the job starts
-    drama: { dramaName: folderName.trim(), imageUrl: image },
+    drama: { dramaName: folderName.trim(), imageUrl: image, category: dramaCategory },
     files: jobFiles,
     uploadsComplete: false,
     output: null, // { folder, path, size } once done
@@ -174,6 +183,7 @@ export function toPublic(job) {
     id: job.id,
     folderName: job.folderName,
     imageUrl: job.drama.imageUrl,
+    category: job.drama.category,
     status: job.status,
     createdAt: job.createdAt,
     uploadsComplete: job.uploadsComplete,
@@ -194,7 +204,7 @@ export function toPublic(job) {
   }
 }
 
-/** "<downloads>/<uuid>/drama.json" next to the series folder: { dramaName, imageUrl }. */
+/** "<downloads>/<uuid>/drama.json" next to the series folder: { dramaName, imageUrl, category }. */
 export async function writeDramaInfo(job) {
   await fsp.mkdir(job.workDir, { recursive: true })
   await fsp.writeFile(path.join(job.workDir, 'drama.json'), `${JSON.stringify(job.drama, null, 2)}\n`)

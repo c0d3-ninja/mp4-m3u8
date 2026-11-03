@@ -19,6 +19,7 @@ export default function App() {
   const [selection, setSelection] = useState(null) // { folderName, items, totalFiles }
   const [selected, setSelected] = useState(() => new Set())
   const [imageUrl, setImageUrl] = useState('')
+  const [category, setCategory] = useState('')
   const [job, setJob] = useState(null)
   const [uploads, setUploads] = useState({}) // fileId -> { progress, done, error }
   const [uploading, setUploading] = useState(false)
@@ -114,7 +115,11 @@ export default function App() {
       setError(`No videos found in "${result.folderName}". Supported: mp4, m4v, mov, mkv, webm, avi.`)
       return
     }
-    if (result.folderName !== selection?.folderName) setImageUrl('') // a different drama
+    if (result.folderName !== selection?.folderName) {
+      // A different drama
+      setImageUrl('')
+      setCategory('')
+    }
     setSelection(result)
     setSelected(new Set(result.items.map((i) => i.key))) // everything selected by default
   }
@@ -144,7 +149,7 @@ export default function App() {
       created = await api.createJob(
         selection.folderName,
         chosen.map((i) => ({ relativePath: i.relativePath, size: i.size })),
-        imageUrl.trim(),
+        { imageUrl: imageUrl.trim(), category: category.trim() },
       )
     } catch (e) {
       setError(e.message)
@@ -246,6 +251,7 @@ export default function App() {
     setSelection(null)
     setSelected(new Set())
     setImageUrl('')
+    setCategory('')
     setError(null)
     setNotice(null)
   }
@@ -349,22 +355,34 @@ export default function App() {
               </div>
             </div>
 
-            <label className="field">
-              <span>Image URL (optional)</span>
-              <input
-                type="text"
-                inputMode="url"
-                placeholder="https://example.com/poster.jpg"
-                value={imageUrl}
-                onChange={(e) => setImageUrl(e.target.value)}
-                disabled={starting}
-                spellCheck={false}
-              />
-              <span className="muted small">
-                Saved with the drama name ({selection.folderName}) in <strong>drama.json</strong> inside the uuid
-                folder.
-              </span>
-            </label>
+            <div className="grid-2">
+              <label className="field">
+                <span>Category (optional)</span>
+                <input
+                  type="text"
+                  placeholder="e.g. Romance"
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  disabled={starting}
+                  maxLength={100}
+                />
+              </label>
+              <label className="field">
+                <span>Image URL (optional)</span>
+                <input
+                  type="text"
+                  inputMode="url"
+                  placeholder="https://example.com/poster.jpg"
+                  value={imageUrl}
+                  onChange={(e) => setImageUrl(e.target.value)}
+                  disabled={starting}
+                  spellCheck={false}
+                />
+              </label>
+            </div>
+            <p className="muted small">
+              Saved with the drama name ({selection.folderName}) in <strong>drama.json</strong> inside the uuid folder.
+            </p>
 
             <FileList items={selection.items} selected={selected} onToggle={toggle} onToggleAll={toggleAll} />
 

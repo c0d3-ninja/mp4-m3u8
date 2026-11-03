@@ -37,7 +37,7 @@ to the local server only.
 ```
 ~/Downloads/                          DOWNLOADS_DIR
 └── 3f2b9c1e-…-uuid/                  a new random UUID per conversion
-    ├── drama.json                    { "dramaName": "My Drama", "imageUrl": "https://…" }, written when it starts
+    ├── drama.json                    { "dramaName", "imageUrl", "category" }, written when it starts
     └── drama/                        always "drama"; the real name is in drama.json
         ├── manifest.json                 episode list for your app (order, durations, paths, posters)
         ├── Episode 1/
@@ -53,8 +53,9 @@ to the local server only.
 - The source's own resolution is always the highest quality, followed by every smaller standard size. Sizes go by the
   short side, so vertical (1080×1920) and landscape (1920×1080) both work. Nothing is upscaled or capped:
   1080p → 1080p / 720p / 480p / 360p, 720p → 720p / 480p / 360p, 900p → 900p / 720p / …, 4K → 2160p / 1440p / 1080p / ….
-- `drama.json`: `dramaName` is the name of the folder you picked; `imageUrl` is the optional **Image URL** field
-  shown before **Convert** (it must be http/https; `null` when left empty). It sits next to the series folder,
+- `drama.json`: `dramaName` is the name of the folder you picked; `category` and `imageUrl` come from the optional
+  **Category** and **Image URL** fields shown before **Convert** (the image URL must be http/https; both are `null`
+  when left empty). It sits next to the series folder,
   so the Cloudflare upload (which sends `drama/`) doesn't include it.
 - The frame rate is kept as in the source (24, 29.97, 30, 60 fps…) for every quality. Video above 30 fps gets 1.5× the
   bitrate so it looks as good. Each episode's `fps` is in `manifest.json`.

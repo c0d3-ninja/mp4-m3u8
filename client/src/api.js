@@ -27,7 +27,8 @@ async function request(method, url, body, extraHeaders) {
 }
 
 export const api = {
-  createJob: (folderName, files, imageUrl) => request('POST', '/api/jobs', { folderName, files, imageUrl }),
+  createJob: (folderName, files, { imageUrl, category } = {}) =>
+    request('POST', '/api/jobs', { folderName, files, imageUrl, category }),
   getJob: (id) => request('GET', `/api/jobs/${id}`),
   finalize: (id) => request('POST', `/api/jobs/${id}/finalize`),
   removeJob: (id) => request('DELETE', `/api/jobs/${id}`),
