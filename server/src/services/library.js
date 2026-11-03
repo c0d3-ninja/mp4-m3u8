@@ -160,7 +160,7 @@ export async function getConverted(id) {
  * `files` ([{ relativePath, size }], e.g. the episodes ticked after picking the folder in the browser) limits it to
  * those videos; each must exist there with the same size, otherwise 409 so the browser uploads its own copy instead.
  */
-export async function convertFolder(name, only) {
+export async function convertFolder(name, only, encoder, parallel) {
   const folder = String(name ?? '')
   if (!folder || folder.startsWith('.') || /[\\/\u0000]/.test(folder) || folder === '..') {
     throw new HttpError(400, 'Pick a folder from the list')
@@ -203,6 +203,8 @@ export async function convertFolder(name, only) {
     files: videos.map((v) => ({ relativePath: v.relativePath, size: v.size })),
     drama: drama && typeof drama === 'object' && !Array.isArray(drama) ? drama : null,
     fromDisk: true,
+    encoder,
+    parallel,
   })
   try {
     await writeDramaInfo(job)

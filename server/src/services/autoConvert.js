@@ -1,6 +1,7 @@
 import { HttpError, getJob, toPublic } from './jobs.js'
 import { convertFolder, scanLibrary } from './library.js'
 import { formatGapList } from './episodes.js'
+import { resolveEncoder } from './transcoder.js'
 
 // Auto convert: converts the Convert tab's folders (those with a drama.json) one after another, only when every
 // episode is there (video count = drama.json's totalEpisodes), on the server, so it
@@ -18,6 +19,8 @@ const state = {
   skipped: new Set(), // folders the user chose to skip
   message: null, // e.g. "All folders are converted"
   retry: null, // folder to convert again first on Retry (its last conversion had errors)
+  encoder: null, // 'hardware' | 'software', set by Start / Retry; every folder of the run uses it
+  parallel: null, // episodes at once (software), set the same way
 }
 
 let loop = null // the running loop's promise, so only one runs
@@ -127,7 +130,7 @@ async function run() {
     }
 
     try {
-      const job = await convertFolder(next.name)
+      const job = await convertFolder(next.name, undefined, state.encoder, state.parallel)
       state.current = { folder: next.name, jobId: job.id, startedAt: new Date().toISOString() }
       console.log(`[auto convert] converting "${next.name}" (${job.files.length} episodes)`)
     } catch (err) {
@@ -149,8 +152,11 @@ function ensureLoop() {
 }
 
 /** Start, or resume after a pause (errors are cleared; the failed folder is tried again unless skipped). */
-export function startAuto() {
+export function startAuto(encoder, parallel) {
   if (state.status === 'running') return getAutoState()
+  // Start / Retry is the "convert" click: its encoder choice is used for the rest of the run. Skip keeps the last one.
+  if (encoder !== undefined) state.encoder = resolveEncoder(encoder)
+  if (parallel !== undefined) state.parallel = parallel
   state.errors = []
   state.message = null
   if (state.status === 'off') {
@@ -193,6 +199,8 @@ export function getAutoState() {
   }
   return {
     status: state.status,
+    encoder: state.encoder,
+    parallel: state.parallel,
     current,
     errors: state.errors,
     completed: state.completed,

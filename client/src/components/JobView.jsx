@@ -1,4 +1,4 @@
-import { episodeGaps, formatBytes, formatDuration, hlsUrl, percent } from '../utils.js'
+import { episodeGaps, formatBytes, formatDuration, formatElapsed, hlsUrl, percent } from '../utils.js'
 import CloudflarePush from './CloudflarePush.jsx'
 import MissingEpisodes from './MissingEpisodes.jsx'
 
@@ -43,6 +43,8 @@ export default function JobView({
   const doneCount = job.files.filter((f) => f.status === 'done').length
   const failedCount = states.filter((s) => s.tone === 'error').length
   const total = job.files.length
+  const timed = job.files.filter((f) => f.status === 'done' && f.seconds != null)
+  const average = timed.length ? timed.reduce((sum, f) => sum + f.seconds, 0) / timed.length : null
 
   const running = ['uploading', 'processing'].includes(job.status)
   const interrupted = job.status === 'uploading' && !uploading
@@ -67,7 +69,15 @@ export default function JobView({
           <p className="muted">
             {doneCount} of {total} converted
             {failedCount > 0 && <span className="error-text"> · {failedCount} failed</span>}
+            {job.encoder && <> · {job.encoder === 'hardware' ? 'Hardware' : 'Software'} encoding</>}
+            {job.parallel > 1 && <> · {job.parallel} episodes at once</>}
           </p>
+          {job.convertSeconds != null && (
+            <p className="muted small">
+              ⏱ {job.finished ? 'Whole series took' : 'Converting for'} <strong>{formatElapsed(job.convertSeconds)}</strong>
+              {average != null && <> · about {formatElapsed(average)} per episode</>}
+            </p>
+          )}
         </div>
         <div className="actions">
           {running && !interrupted && (
@@ -143,6 +153,9 @@ export default function JobView({
                   </span>
                   <span className={`chip ${s.tone}`}>{s.label}</span>
                 </div>
+                {file.status === 'converting' && file.seconds != null && (
+                  <span className="muted small">⏱ {formatElapsed(file.seconds)} so far</span>
+                )}
                 {s.tone === 'active' && (
                   <div className="bar">
                     <div className="fill" style={{ width: percent(s.progress) }} />
@@ -152,6 +165,7 @@ export default function JobView({
                   <span className="muted small">
                     {formatDuration(r.duration)} · {r.renditions.map((x) => x.name).join(' / ')}
                     {!r.hasAudio && ' · no audio'}
+                    {file.seconds != null && <> · ⏱ converted in {formatElapsed(file.seconds)}</>}
                   </span>
                 )}
                 {s.detail && <span className="error-text small">{s.detail}</span>}

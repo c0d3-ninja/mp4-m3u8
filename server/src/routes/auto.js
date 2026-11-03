@@ -5,7 +5,7 @@ import { getAutoState, skipFolder, startAuto, stopAuto } from '../services/autoC
 const router = Router()
 
 router.get('/', (req, res) => res.json(getAutoState()))
-router.post('/start', (req, res) => res.json(startAuto())) // also "Retry" after a pause
+router.post('/start', (req, res) => res.json(startAuto(req.body?.encoder, req.body?.parallel))) // also "Retry" after a pause
 router.post('/stop', (req, res) => res.json(stopAuto()))
 router.post('/skip', (req, res) => res.json(skipFolder(req.body?.folder)))
 

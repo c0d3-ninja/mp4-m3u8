@@ -64,6 +64,17 @@ export function formatDuration(seconds) {
   return h ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`
 }
 
+/** Time a conversion took: 42 -> "42s", 312 -> "5m 12s", 4000 -> "1h 6m 40s". */
+export function formatElapsed(seconds) {
+  if (seconds == null) return ''
+  const s = Math.round(seconds)
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const sec = s % 60
+  if (h) return `${h}h ${m}m ${sec}s`
+  return m ? `${m}m ${sec}s` : `${sec}s`
+}
+
 export const percent = (p) => `${Math.floor((p || 0) * 100)}%`
 
 /** URL of a file inside a job's HLS output, with every path segment encoded. */
@@ -289,6 +300,47 @@ export const storedTab = {
   set(tab) {
     try {
       localStorage.setItem(TAB_KEY, tab)
+    } catch {
+      /* ignore */
+    }
+  },
+}
+
+/** Convert tab's encoding choice, remembered in this browser: 'hardware' (default) | 'software'. */
+const ENCODER_KEY = 'mp4-m3u8:encoder'
+export const storedEncoder = {
+  get() {
+    try {
+      const v = localStorage.getItem(ENCODER_KEY)
+      return v === 'software' ? 'software' : 'hardware'
+    } catch {
+      return 'hardware'
+    }
+  },
+  set(value) {
+    try {
+      localStorage.setItem(ENCODER_KEY, value)
+    } catch {
+      /* ignore */
+    }
+  },
+}
+
+/** Software encoding: episodes converted at once (1-8), remembered in this browser. */
+const PARALLEL_KEY = 'mp4-m3u8:parallel'
+export const MAX_PARALLEL = 8
+export const clampParallel = (v) => Math.min(MAX_PARALLEL, Math.max(1, Math.floor(Number(v)) || 1))
+export const storedParallel = {
+  get() {
+    try {
+      return clampParallel(localStorage.getItem(PARALLEL_KEY) || 1)
+    } catch {
+      return 1
+    }
+  },
+  set(value) {
+    try {
+      localStorage.setItem(PARALLEL_KEY, String(clampParallel(value)))
     } catch {
       /* ignore */
     }

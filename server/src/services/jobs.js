@@ -2,7 +2,7 @@ import fsp from 'node:fs/promises'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { config } from '../config.js'
-import { transcodeToHls } from './transcoder.js'
+import { resolveEncoder, transcodeToHls } from './transcoder.js'
 import { recordUpload, updateMarker } from './marker.js'
 
 export const VIDEO_EXTENSIONS = ['.mp4', '.m4v', '.mov', '.mkv', '.webm', '.avi']
@@ -177,7 +177,16 @@ export function dramaIdOf(drama) {
 }
 const outputIdOf = (drama) => dramaIdOf(drama) ?? crypto.randomUUID()
 
-export function createJob({ folderName, files, drama: info, fromDisk = false } = {}) {
+export const MAX_PARALLEL = 8
+
+/** Episodes converted at once: software only (1-8, default CONCURRENCY); hardware always 1 (one media engine). */
+export function resolveParallel(encoder, value) {
+  if (encoder === 'hardware') return 1
+  const n = Math.floor(Number(value ?? config.concurrency))
+  return Number.isFinite(n) ? Math.min(MAX_PARALLEL, Math.max(1, n)) : 1
+}
+
+export function createJob({ folderName, files, drama: info, fromDisk = false, encoder, parallel } = {}) {
   if (typeof folderName !== 'string' || !folderName.trim()) {
     throw new HttpError(400, 'folderName is required')
   }
@@ -246,6 +255,10 @@ export function createJob({ folderName, files, drama: info, fromDisk = false } =
     source: folderName.trim(),
     // Converted straight from "<downloads>/<source>/": the MP4s are read in place and never deleted
     fromDisk,
+    // 'hardware' | 'software', fixed when Convert is clicked (changing the choice later doesn't affect this job)
+    encoder: resolveEncoder(encoder),
+    // Episodes converting at once (software only), also fixed at the Convert click
+    parallel: resolveParallel(resolveEncoder(encoder), parallel),
     status: 'uploading', // uploading → processing → done | failed | cancelled
     createdAt: new Date().toISOString(),
     lastSeen: Date.now(),
@@ -275,6 +288,11 @@ export function toPublic(job) {
     folderName: job.folderName,
     source: job.source,
     fromDisk: job.fromDisk,
+    encoder: job.encoder,
+    parallel: job.parallel,
+    // Conversion time: whole series (live while converting) and per episode
+    convertSeconds: seriesSeconds(job),
+    finished: Boolean(job.finishedAt),
     drama: job.drama,
     status: job.status,
     createdAt: job.createdAt,
@@ -290,6 +308,8 @@ export function toPublic(job) {
       outputPath: f.outputPath,
       status: f.status,
       progress: f.progress,
+      // Seconds this episode took; while converting, how long it has been converting so far
+      seconds: f.status === 'converting' && f.startedAt ? (Date.now() - f.startedAt) / 1000 : f.seconds ?? null,
       error: f.error,
       result: f.result,
     })),
@@ -343,9 +363,14 @@ export function finalizeUploads(job) {
 }
 
 function pump() {
-  while (active < config.concurrency && queue.length > 0) {
+  while (queue.length > 0) {
+    if (queue[0].job.cancelled) {
+      queue.shift()
+      continue
+    }
+    // How many episodes run at once is the next job's choice (set when Convert was clicked)
+    if (active >= queue[0].job.parallel) break
     const { job, file } = queue.shift()
-    if (job.cancelled) continue
     active++
     const task = convert(job, file).finally(() => {
       active--
@@ -362,10 +387,16 @@ async function convert(job, file) {
   job.controllers.add(controller)
   file.status = 'converting'
   file.progress = 0
+  // Timing: per episode, and for the series from its first episode starting to its last one finishing
+  file.startedAt = Date.now()
+  file.seconds = null
+  job.startedAt ??= file.startedAt
   const outDir = path.join(job.outputRoot, ...file.outputPath.split('/'))
 
   try {
     file.result = await transcodeToHls(file.inputPath, outDir, {
+      encoder: job.encoder,
+      parallel: job.parallel,
       signal: controller.signal,
       onProgress: (p) => {
         file.progress = p
@@ -373,9 +404,11 @@ async function convert(job, file) {
     })
     file.status = 'done'
     file.progress = 1
+    file.seconds = (Date.now() - file.startedAt) / 1000
   } catch (err) {
     if (job.cancelled) return
     file.status = 'error'
+    file.seconds = (Date.now() - file.startedAt) / 1000
     file.error = friendlyError(err, file)
     console.error(`[${job.folderName}] ${file.relativePath}: ${file.error}`)
     await fsp.rm(outDir, { recursive: true, force: true }).catch(() => {})
@@ -401,6 +434,7 @@ function maybeFinish(job) {
   if (job.cancelled || !job.uploadsComplete || job.status !== 'processing') return
   const busy = job.files.some((f) => ['pending', 'uploading', 'queued', 'converting'].includes(f.status))
   if (busy) return
+  job.finishedAt ??= Date.now()
 
   if (!job.files.some((f) => f.status === 'done')) {
     job.status = 'failed'
@@ -423,6 +457,8 @@ function maybeFinish(job) {
         status: 'done',
         completedAt: new Date().toISOString(),
         episodes: job.files.filter((f) => f.status === 'done').length,
+        encoder: job.encoder,
+        convertSeconds: seriesSeconds(job),
       }))
     },
     (err) => {
@@ -435,11 +471,20 @@ function maybeFinish(job) {
   )
 }
 
+/** Seconds from the first episode starting to the last one finishing (or until now while converting), or null. */
+export function seriesSeconds(job) {
+  if (!job.startedAt) return null
+  return Math.round(((job.finishedAt ?? Date.now()) - job.startedAt) / 100) / 10
+}
+
 function buildManifest(job) {
   const done = job.files.filter((f) => f.status === 'done')
   return {
     title: job.folderName,
     createdAt: new Date().toISOString(),
+    encoder: job.encoder,
+    parallel: job.parallel,
+    convertSeconds: seriesSeconds(job),
     episodeCount: done.length,
     episodes: done.map((f, i) => ({
       number: i + 1,
@@ -450,6 +495,7 @@ function buildManifest(job) {
       width: f.result.width,
       height: f.result.height,
       fps: f.result.fps,
+      convertSeconds: Math.round(f.seconds * 10) / 10,
       renditions: f.result.renditions,
     })),
     failed: job.files

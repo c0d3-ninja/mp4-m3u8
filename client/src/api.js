@@ -27,7 +27,8 @@ async function request(method, url, body, extraHeaders) {
 }
 
 export const api = {
-  createJob: (folderName, files, drama) => request('POST', '/api/jobs', { folderName, files, drama }),
+  createJob: (folderName, files, drama, encoder, parallel) =>
+    request('POST', '/api/jobs', { folderName, files, drama, encoder, parallel }),
   getJob: (id) => request('GET', `/api/jobs/${id}`),
   finalize: (id) => request('POST', `/api/jobs/${id}/finalize`),
   removeJob: (id) => request('DELETE', `/api/jobs/${id}`),
@@ -86,7 +87,8 @@ export const move = {
 /** Folders in the server's downloads folder: MP4 folders to convert, converted folders to upload. */
 export const library = {
   list: () => request('GET', '/api/library'),
-  convert: (folder, files) => request('POST', '/api/library/convert', { folder, files }),
+  convert: (folder, files, encoder, parallel) =>
+    request('POST', '/api/library/convert', { folder, files, encoder, parallel }),
   upload: (id, settings, { prefix, skipExisting } = {}) =>
     request('POST', `/api/library/${encodeURIComponent(id)}/upload`, { prefix, skipExisting }, r2Headers(settings)),
   cancelUpload: (id) => request('DELETE', `/api/library/${encodeURIComponent(id)}/upload`),
@@ -110,7 +112,7 @@ export const cut = {
 /** Auto convert: every folder with a drama.json, one after another, paused on the first error. */
 export const auto = {
   get: () => request('GET', '/api/auto'),
-  start: () => request('POST', '/api/auto/start'),
+  start: (encoder, parallel) => request('POST', '/api/auto/start', { encoder, parallel }),
   stop: () => request('POST', '/api/auto/stop'),
   skip: (folder) => request('POST', '/api/auto/skip', { folder }),
 }

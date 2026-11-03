@@ -12,7 +12,7 @@ const STATUS = {
  * page is closed), only when all its episodes are there. Pauses on the first error or incomplete folder and shows it;
  * nothing continues until Retry / Skip.
  */
-export default function AutoConvert({ active, onOpenJob, onProgress }) {
+export default function AutoConvert({ active, encoder, parallel, onOpenJob, onProgress }) {
   const [state, setState] = useState(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
@@ -88,12 +88,12 @@ export default function AutoConvert({ active, onOpenJob, onProgress }) {
               <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => act(auto.stop)}>
                 Turn off
               </button>
-              <button type="button" className="btn btn-primary" disabled={busy} onClick={() => act(auto.start)}>
+              <button type="button" className="btn btn-primary" disabled={busy} onClick={() => act(() => auto.start(encoder, parallel))}>
                 Retry
               </button>
             </>
           ) : (
-            <button type="button" className="btn btn-primary" disabled={busy} onClick={() => act(auto.start)}>
+            <button type="button" className="btn btn-primary" disabled={busy} onClick={() => act(() => auto.start(encoder, parallel))}>
               Start auto convert
             </button>
           )}

@@ -1,6 +1,15 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { api, library } from './api.js'
-import { episodeGaps, formatBytes, r2Store, readFolderSelection, storedJobId, storedTab } from './utils.js'
+import {
+  episodeGaps,
+  formatBytes,
+  r2Store,
+  readFolderSelection,
+  storedEncoder,
+  storedJobId,
+  storedParallel,
+  storedTab,
+} from './utils.js'
 import FolderPicker from './components/FolderPicker.jsx'
 import FileList from './components/FileList.jsx'
 import JobView from './components/JobView.jsx'
@@ -13,6 +22,7 @@ import AutoConvert from './components/AutoConvert.jsx'
 import CutFramesPanel from './components/CutFramesPanel.jsx'
 import LibraryUploads from './components/LibraryUploads.jsx'
 import MissingEpisodes from './components/MissingEpisodes.jsx'
+import EncoderChoice from './components/EncoderChoice.jsx'
 
 // hls.js is large, so the player is only loaded when a preview is opened
 const PreviewModal = lazy(() => import('./components/PreviewModal.jsx'))
@@ -90,6 +100,19 @@ export default function App() {
   const [sourcesRefresh, setSourcesRefresh] = useState(0)
   const refreshSources = useCallback(() => setSourcesRefresh((n) => n + 1), [])
   const [r2Settings, setR2Settings] = useState(() => r2Store.load())
+  // Hardware / software encoding: remembered, and read only when a Convert button is clicked
+  const [encoder, setEncoderState] = useState(() => storedEncoder.get())
+  const setEncoder = (value) => {
+    setEncoderState(value)
+    storedEncoder.set(value)
+  }
+  // Software only: episodes converted at once, also read when Convert is clicked (hardware always converts 1)
+  const [parallel, setParallelState] = useState(() => storedParallel.get())
+  const setParallel = (value) => {
+    setParallelState(value)
+    storedParallel.set(value)
+  }
+  const parallelFor = encoder === 'software' ? parallel : 1
 
   function switchTab(next) {
     if (next !== 'folders') setFoldersStart('')
@@ -204,7 +227,7 @@ export default function App() {
     // it there: nothing is sent from this page, so it keeps going if the page is closed or left. The server refuses
     // (and we upload from the browser as before) if that folder isn't there or has different files.
     try {
-      const onServer = await library.convert(selection.folderName, files)
+      const onServer = await library.convert(selection.folderName, files, encoder, parallelFor)
       startFromLibrary(onServer)
       setNotice(
         `Converting "${selection.folderName}" straight from the server's downloads folder. It keeps going even if you leave this page.`,
@@ -221,6 +244,8 @@ export default function App() {
         selection.folderName,
         chosen.map((i) => ({ relativePath: i.relativePath, size: i.size })),
         drama?.info,
+        encoder,
+        parallelFor,
       )
     } catch (e) {
       setError(e.message)
@@ -430,7 +455,15 @@ export default function App() {
         )}
         {notice && <p className="banner info">{notice}</p>}
 
-        <AutoConvert active={tab === 'convert'} onOpenJob={openJob} onProgress={refreshSources} />
+        <EncoderChoice value={encoder} onChange={setEncoder} parallel={parallel} onParallelChange={setParallel} />
+
+        <AutoConvert
+          active={tab === 'convert'}
+          encoder={encoder}
+          parallel={parallelFor}
+          onOpenJob={openJob}
+          onProgress={refreshSources}
+        />
 
         {/* Stays mounted, hidden while a job or a picked folder is shown */}
         <div className="tab-panel" hidden={Boolean(job || selection)}>
@@ -438,6 +471,8 @@ export default function App() {
             active={tab === 'convert' && !job && !selection}
             onStarted={startFromLibrary}
             onOpenJob={openJob}
+            encoder={encoder}
+            parallel={parallelFor}
             refreshKey={sourcesRefresh}
           />
         </div>

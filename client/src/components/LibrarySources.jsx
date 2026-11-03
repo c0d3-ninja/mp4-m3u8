@@ -28,7 +28,7 @@ function conversionLabel(conversions) {
 }
 
 /** Convert tab: folders of videos in the server's downloads folder, converted in place on click. */
-export default function LibrarySources({ active, onStarted, onOpenJob, refreshKey = 0 }) {
+export default function LibrarySources({ active, onStarted, onOpenJob, encoder, parallel, refreshKey = 0 }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [starting, setStarting] = useState(null)
@@ -79,7 +79,7 @@ export default function LibrarySources({ active, onStarted, onOpenJob, refreshKe
     setStarting(src.name)
     setError(null)
     try {
-      onStarted(await library.convert(src.name))
+      onStarted(await library.convert(src.name, undefined, encoder, parallel))
     } catch (e) {
       setError(e.message)
       load()

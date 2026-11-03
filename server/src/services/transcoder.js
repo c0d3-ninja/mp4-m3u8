@@ -3,7 +3,30 @@ import os from 'node:os'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { config } from '../config.js'
+import { spawnSync } from 'node:child_process'
 import { encoderThreads, helperThreads, limitedCommand } from './cpu.js'
+
+// Video encoder, chosen per conversion in the Convert tab:
+//   'hardware' = h264_videotoolbox (Apple's media engine: ~2.5x faster, CPU mostly free, macOS only)
+//   'software' = libx264 (CPU; a little better quality for the size, works everywhere)
+export const ENCODERS = ['hardware', 'software']
+export const DEFAULT_ENCODER = 'hardware'
+
+let hardwareAvailable
+/** Whether this ffmpeg has the VideoToolbox H.264 encoder (checked once). */
+export function hasHardwareEncoder() {
+  if (hardwareAvailable === undefined) {
+    const out = spawnSync(config.ffmpegPath, ['-hide_banner', '-encoders'], { encoding: 'utf8' })
+    hardwareAvailable = !out.error && /\bh264_videotoolbox\b/.test(out.stdout || '')
+  }
+  return hardwareAvailable
+}
+
+/** 'hardware' | 'software' from a request value; hardware falls back to software where it doesn't exist. */
+export function resolveEncoder(value) {
+  const wanted = ENCODERS.includes(value) ? value : DEFAULT_ENCODER
+  return wanted === 'hardware' && !hasHardwareEncoder() ? 'software' : wanted
+}
 
 // Adaptive bitrate ladder. `short` is the length of the frame's short side, so
 // the same ladder works for landscape (1920x1080) and vertical (1080x1920) video.
@@ -44,14 +67,15 @@ export function runTool(cmd, args, options) {
   return run(cmd, args, options)
 }
 
-function run(cmd, args, { cwd, signal, onStdout } = {}) {
+function run(cmd, args, { cwd, signal, onStdout, unrestricted = false } = {}) {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(abortError())
 
-    const [bin, binArgs] = limitedCommand(cmd, args)
+    // Unrestricted (hardware conversions): no CPU pinning and normal priority
+    const [bin, binArgs] = unrestricted ? [cmd, args] : limitedCommand(cmd, args)
     const child = spawn(bin, binArgs, { cwd, stdio: ['ignore', 'pipe', 'pipe'] })
     // Lower priority, so the Mac (or server) stays responsive while converting
-    if (child.pid) {
+    if (child.pid && !unrestricted) {
       try {
         os.setPriority(child.pid, 10)
       } catch {
@@ -169,8 +193,13 @@ export function pickRenditions(width, height, fps = 30) {
  *   outDir/master.m3u8
  *   outDir/<rendition>/index.m3u8 + seg_000.ts …
  */
-export async function transcodeToHls(input, outDir, { onProgress, signal } = {}) {
+export async function transcodeToHls(input, outDir, { onProgress, signal, encoder = DEFAULT_ENCODER, parallel = 1 } = {}) {
   const info = await probe(input, { signal })
+  // Software: x264 within the CPU limit (FFMPEG_CPU_PERCENT), at low priority; with `parallel` episodes converting at
+  // once, each gets an equal share of that limit.
+  // Hardware: decoding and resizing on the CPU, encoding on the media engine, with no limits at all: every thread
+  // ffmpeg wants, normal priority, no CPU pinning.
+  const hardware = resolveEncoder(encoder) === 'hardware'
   const renditions = pickRenditions(info.width, info.height, info.fps)
   const segment = config.hlsSegmentSeconds
 
@@ -192,18 +221,21 @@ export async function transcodeToHls(input, outDir, { onProgress, signal } = {})
     '-loglevel', 'error',
     '-progress', 'pipe:1', '-nostats',
     // CPU limit (FFMPEG_CPU_PERCENT): decoder and scale filters get a small share, the encoders split the rest
-    '-threads', String(helperThreads()),
+    // Thread counts: 0 = as many as ffmpeg wants (hardware); otherwise a share of the CPU limit
+    '-threads', hardware ? '0' : String(helperThreads(parallel)),
     '-i', input,
-    '-filter_complex_threads', String(helperThreads()),
+    '-filter_complex_threads', hardware ? '0' : String(helperThreads(parallel)),
     '-filter_complex', filter,
   ]
 
-  const threads = encoderThreads(renditions)
+  const threads = encoderThreads(renditions, parallel)
   renditions.forEach((r, i) => {
     args.push(
       '-map', `[v${i}]`,
-      `-c:v:${i}`, 'libx264',
-      `-threads:v:${i}`, String(threads[i]),
+      // Hardware encoding runs on the media engine, so the CPU thread split only applies to x264
+      ...(hardware
+        ? [`-c:v:${i}`, 'h264_videotoolbox']
+        : [`-c:v:${i}`, 'libx264', `-threads:v:${i}`, String(threads[i])]),
       `-b:v:${i}`, `${r.videoKbps}k`,
       `-maxrate:v:${i}`, `${Math.round(r.videoKbps * 1.07)}k`,
       `-bufsize:v:${i}`, `${Math.round(r.videoKbps * 1.5)}k`,
@@ -212,12 +244,12 @@ export async function transcodeToHls(input, outDir, { onProgress, signal } = {})
   })
 
   args.push(
-    '-preset', config.ffmpegPreset,
+    // x264 only: speed preset, and no extra keyframes on scene cuts (VideoToolbox adds none of its own)
+    ...(hardware ? ['-realtime', '0'] : ['-preset', config.ffmpegPreset, '-sc_threshold', '0']),
     '-profile:v', 'high',
     // Keyframes at exact segment boundaries, identical across renditions,
     // so players can switch quality cleanly between segments.
     '-force_key_frames', `expr:gte(t,n_forced*${segment})`,
-    '-sc_threshold', '0',
   )
 
   if (info.hasAudio) {
@@ -246,6 +278,7 @@ export async function transcodeToHls(input, outDir, { onProgress, signal } = {})
   await run(config.ffmpegPath, args, {
     cwd: outDir,
     signal,
+    unrestricted: hardware,
     onStdout(chunk) {
       buffer += chunk
       const lines = buffer.split('\n')
@@ -269,6 +302,7 @@ export async function transcodeToHls(input, outDir, { onProgress, signal } = {})
     height: info.height,
     fps: Math.round(info.fps * 1000) / 1000,
     hasAudio: info.hasAudio,
+    encoder: hardware ? 'hardware' : 'software',
     renditions: renditions.map((r) => ({
       name: r.name,
       width: r.width,

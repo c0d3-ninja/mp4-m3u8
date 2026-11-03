@@ -71,14 +71,18 @@ export const cpuLimit = detect()
  * Threads per encoder so that all renditions together use about `limit` threads, shared by pixel count:
  * a 1080p/720p/480p/360p ladder on 6 threads -> 3/1/1/1 instead of 6 each (x264's default is ~1.5 x cores each).
  */
-export function encoderThreads(renditions) {
+export function encoderThreads(renditions, parallel = 1) {
+  const limit = sharedLimit(parallel)
   const pixels = renditions.map((r) => r.width * r.height)
   const total = pixels.reduce((a, b) => a + b, 0) || 1
-  return pixels.map((p) => Math.max(1, Math.round((cpuLimit.limit * p) / total)))
+  return pixels.map((p) => Math.max(1, Math.round((limit * p) / total)))
 }
 
 /** Threads for decoding the source and for the scale filters (each a small share of the limit). */
-export const helperThreads = () => Math.max(1, Math.round(cpuLimit.limit / 3))
+export const helperThreads = (parallel = 1) => Math.max(1, Math.round(sharedLimit(parallel) / 3))
+
+/** The CPU limit split between `parallel` conversions running at once: 4 at once on 24 allowed -> 6 each. */
+const sharedLimit = (parallel) => Math.max(1, Math.floor(cpuLimit.limit / Math.max(1, parallel)))
 
 /** [cmd, args] for spawning ffmpeg/ffprobe within the CPU limit (taskset-pinned when possible). */
 export function limitedCommand(cmd, args) {
