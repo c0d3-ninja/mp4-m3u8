@@ -52,7 +52,11 @@ function handle(msg) {
       const list = readList()
       const id = dramaIdOf(entry)
       const i = id ? list.findIndex((e) => dramaIdOf(e) === id) : -1
-      if (i >= 0) list[i] = entry
+      if (i >= 0) {
+        // Keep hand-written extras (app_dramaName, app_description, …) that the page doesn't provide.
+        const kept = Object.fromEntries(Object.entries(list[i]).filter(([k]) => k.startsWith('app_') && !(k in entry)))
+        list[i] = { ...entry, ...kept }
+      }
       else list.push(entry)
       writeList(list)
       return { ok: true, file: FILE, updated: i >= 0, count: list.length }
