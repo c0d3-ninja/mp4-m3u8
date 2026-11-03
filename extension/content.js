@@ -51,6 +51,18 @@
 
     const dramaName = text(root.querySelector('h2'))
 
+    // Category tags ("High society", "Family bonds") are the <span>s in the <div> right after the title
+    // (the one without the description <p>).
+    const category = []
+    for (const div of root.querySelectorAll('h2 ~ div')) {
+      if (div.querySelector('p, button')) continue
+      for (const sp of div.querySelectorAll('span')) {
+        const t = text(sp)
+        if (t && !sp.querySelector('span') && !category.includes(t)) category.push(t)
+      }
+      if (category.length) break
+    }
+
     // The full description is in the <p>; it is only clamped by CSS ("more" button).
     const description = text(root.querySelector('h2 ~ div p') || root.querySelector('p'))
 
@@ -69,7 +81,7 @@
       }
     }
 
-    return { dramaName, description, posterImageUrl, totalEpisodes, dramaUrl: location.href }
+    return { dramaName, category, description, posterImageUrl, totalEpisodes, dramaUrl: location.href }
   }
 
   function removeCard() {
@@ -132,7 +144,7 @@
     const fields = {}
     const field = (key, label, multiline = false) => {
       const input = el(multiline ? 'textarea' : 'input', { class: 'dj-input', 'data-key': key })
-      input.value = String(data[key] ?? '')
+      input.value = Array.isArray(data[key]) ? data[key].join(', ') : String(data[key] ?? '')
       if (key === 'totalEpisodes') input.type = 'number'
       if (key === 'posterImageUrl') input.addEventListener('input', () => (preview.src = input.value))
       fields[key] = input
@@ -144,6 +156,7 @@
     const body = el('div', { class: 'dj-body' }, [
       preview,
       field('dramaName', 'Drama name'),
+      field('category', 'Category (comma separated)'),
       field('description', 'Description', true),
       field('posterImageUrl', 'posterImageUrl'),
       field('totalEpisodes', 'Total episodes'),
@@ -168,6 +181,7 @@
       const entry = {
         id: dramaId,
         dramaName: fields.dramaName.value.trim(),
+        category: fields.category.value.split(',').map((c) => c.trim()).filter(Boolean),
         description: fields.description.value.trim(),
         posterImageUrl: fields.posterImageUrl.value.trim(),
         totalEpisodes: Number(fields.totalEpisodes.value) || 0,
@@ -221,7 +235,7 @@
     }
     const data = extract()
     if (!data || !data.dramaName) return
-    const key = `${location.href}|${data.dramaName}|${data.totalEpisodes}|${data.posterImageUrl}`
+    const key = `${location.href}|${data.dramaName}|${data.category.join(',')}|${data.totalEpisodes}|${data.posterImageUrl}`
     if (key === shownFor && document.getElementById(CARD_ID)) return
     // Don't wipe what the user is typing just because TikTok re-rendered.
     if (shownFor && shownFor.split('|')[0] === location.href && document.getElementById(CARD_ID)?.contains(document.activeElement)) return

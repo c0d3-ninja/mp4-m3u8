@@ -5,7 +5,7 @@ details read from `[data-testid="short-drama-detail"]`, and an **Add to json** b
 an entry to `~/Desktop/dramas-next.json` (created as `[]` if missing):
 
 ```json
-{ "dramaName": "", "description": "", "posterImageUrl": "", "totalEpisodes": 42, "dramaUrl": "<current url>" }
+{ "id": "", "dramaName": "", "category": [], "description": "", "posterImageUrl": "", "totalEpisodes": 42, "dramaUrl": "<current url>" }
 ```
 
 The same drama (same `<id>` in the URL) is updated instead of duplicated.
