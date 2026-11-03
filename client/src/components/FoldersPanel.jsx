@@ -4,8 +4,7 @@ import { formatBytes, naturalCompare } from '../utils.js'
 
 const ICONS = { dir: '📁', file: '📄', link: '🔗' }
 
-const formatDate = (iso) =>
-  new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+const formatDate = (iso) => new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 
 function sortEntries(entries) {
   return [...entries].sort((a, b) => {
@@ -14,8 +13,10 @@ function sortEntries(entries) {
   })
 }
 
-export default function FoldersPanel({ initialPath = '' }) {
+export default function FoldersPanel({ active = true, initialPath = '' }) {
   const [path, setPath] = useState('')
+  const pathRef = useRef('') // folder currently shown, to refresh it when the tab is shown again
+  pathRef.current = path
   const [data, setData] = useState(null) // { root, path, entries, disk }
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -41,9 +42,11 @@ export default function FoldersPanel({ initialPath = '' }) {
     }
   }, [])
 
+  // The tab stays mounted (hidden with CSS), so re-read the disk whenever it is shown: at the folder another tab asked
+  // for ("Open in Folders"), otherwise where you were.
   useEffect(() => {
-    load(initialPath)
-  }, [load, initialPath])
+    if (active) load(initialPath || pathRef.current)
+  }, [active, load, initialPath])
 
   function open(target) {
     setNotice(null)

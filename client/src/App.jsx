@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
-import { api } from './api.js'
+import { api, library } from './api.js'
 import { formatBytes, r2Store, readFolderSelection, storedJobId, storedTab } from './utils.js'
 import FolderPicker from './components/FolderPicker.jsx'
 import FileList from './components/FileList.jsx'
@@ -81,6 +81,7 @@ export default function App() {
   const uploadAbort = useRef(null)
   const [tab, setTab] = useState(() => storedTab.get())
   const [foldersStart, setFoldersStart] = useState('')
+  const [libraryRefresh, setLibraryRefresh] = useState(0)
   const [r2Settings, setR2Settings] = useState(() => r2Store.load())
 
   function switchTab(next) {
@@ -190,6 +191,22 @@ export default function App() {
     setError(null)
     setNotice(null)
     setStarting(true)
+    const files = chosen.map((i) => ({ relativePath: i.relativePath, size: i.size }))
+
+    // The picked folder is usually already in the server's downloads folder (e.g. Chrome on the same pod). Then convert
+    // it there: nothing is sent from this page, so it keeps going if the page is closed or left. The server refuses
+    // (and we upload from the browser as before) if that folder isn't there or has different files.
+    try {
+      const onServer = await library.convert(selection.folderName, files)
+      startFromLibrary(onServer)
+      setNotice(
+        `Converting "${selection.folderName}" straight from the server's downloads folder. It keeps going even if you leave this page.`,
+      )
+      setStarting(false)
+      return
+    } catch {
+      /* not on the server: upload from this browser */
+    }
 
     let created
     try {
@@ -363,7 +380,7 @@ export default function App() {
         </button>
       </nav>
 
-      {/* Both tabs stay mounted so a running conversion or upload continues while you switch */}
+      {/* Stays mounted (hidden with CSS) so a running conversion or upload continues while you switch tabs */}
       <div className="tab-panel" hidden={tab !== 'convert'}>
         {error && (
           <p className="banner error" role="alert">
@@ -374,6 +391,11 @@ export default function App() {
           </p>
         )}
         {notice && <p className="banner info">{notice}</p>}
+
+        {/* Stays mounted, hidden while a job or a picked folder is shown */}
+        <div className="tab-panel" hidden={Boolean(job || selection)}>
+          <LibrarySources active={tab === 'convert' && !job && !selection} onStarted={startFromLibrary} />
+        </div>
 
         {job ? (
           <JobView
@@ -432,7 +454,6 @@ export default function App() {
           </section>
         ) : (
           <>
-            <LibrarySources active={tab === 'convert'} onStarted={startFromLibrary} />
             <section className="card empty">
               <div className="empty-icon">📁</div>
               <h2>Or pick a folder on this computer</h2>
@@ -449,27 +470,29 @@ export default function App() {
 
       <div className="tab-panel" hidden={tab !== 'cloudflare'}>
         <CloudflareSettings settings={r2Settings} onSave={saveR2} onClear={clearR2} />
-        <LibraryUploads active={tab === 'cloudflare'} settings={r2Settings} />
-        <UploadPanel settings={r2Settings} onPreview={setPreview} />
+        <LibraryUploads active={tab === 'cloudflare'} settings={r2Settings} refreshKey={libraryRefresh} />
+        <UploadPanel
+          settings={r2Settings}
+          onPreview={setPreview}
+          onServerUpload={() => setLibraryRefresh((n) => n + 1)}
+        />
       </div>
 
-      {/* Only mounted while open so they re-read the disk each time you come back */}
-      {tab === 'move' && (
-        <div className="tab-panel">
-          <MovePanel
-            onOpenFolder={(folder) => {
-              setFoldersStart(folder)
-              switchTab('folders')
-            }}
-          />
-        </div>
-      )}
+      {/* Every tab stays mounted and is only hidden with CSS, so switching tabs never stops or resets anything.
+          Each panel re-reads the server when it becomes active. */}
+      <div className="tab-panel" hidden={tab !== 'move'}>
+        <MovePanel
+          active={tab === 'move'}
+          onOpenFolder={(folder) => {
+            setFoldersStart(folder)
+            switchTab('folders')
+          }}
+        />
+      </div>
 
-      {tab === 'folders' && (
-        <div className="tab-panel">
-          <FoldersPanel initialPath={foldersStart} />
-        </div>
-      )}
+      <div className="tab-panel" hidden={tab !== 'folders'}>
+        <FoldersPanel active={tab === 'folders'} initialPath={foldersStart} />
+      </div>
 
       {preview && (
         <Suspense fallback={null}>

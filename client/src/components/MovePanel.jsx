@@ -4,7 +4,7 @@ import { folderSlug, formatBytes, naturalCompare, storedCategory } from '../util
 
 const formatDate = (iso) => new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 
-export default function MovePanel({ onOpenFolder }) {
+export default function MovePanel({ active = true, onOpenFolder }) {
   const [data, setData] = useState(null) // { root, files, folders }
   const [folder, setFolder] = useState('')
   // Starts with the last category written, so moving several dramas of one genre needs no retyping
@@ -30,9 +30,10 @@ export default function MovePanel({ onOpenFolder }) {
     }
   }, [])
 
+  // The tab stays mounted (hidden with CSS), so re-list the MP4s whenever it is shown
   useEffect(() => {
-    load()
-  }, [load])
+    if (active) load()
+  }, [active, load])
 
   const name = folderSlug(folder) // the folder that will actually be created / used
   const invalid = /[\\/]/.test(name)
@@ -140,10 +141,10 @@ export default function MovePanel({ onOpenFolder }) {
               {!name
                 ? 'Enter a folder name with at least one letter or number.'
                 : invalid
-                ? 'The folder name cannot contain "/" or "\\".'
-                : exists
-                  ? `"${name}" already exists. The files will be added to it; files with the same name are skipped.`
-                  : `A new folder "${rootName}/${name}" will be created.`}
+                  ? 'The folder name cannot contain "/" or "\\".'
+                  : exists
+                    ? `"${name}" already exists. The files will be added to it; files with the same name are skipped.`
+                    : `A new folder "${rootName}/${name}" will be created.`}
             </span>
           )}
         </label>

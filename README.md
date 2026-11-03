@@ -93,6 +93,12 @@ uploads straight from the server's output folder.
 - **Upload tab → "Converted folders":** every `<uuid>` output folder, labelled **Uploaded / Not uploaded** for the
   current bucket. **Upload** sends it from the server to `<bucket>/<uuid>/` (episodes, `manifest.json`, `drama.json`),
   with live progress and **Cancel**. Re-uploading skips unchanged files.
+- **Leaving the page never stops server work.** Converting, uploading to the bucket, Move and Delete all run on the
+  server. **Choose folder** (Convert or Upload tab) also hands the job to the server when the picked folder is already
+  in `DOWNLOADS_DIR` with the same files (e.g. Chrome on the same pod). Only a folder that exists just on your computer
+  is sent from the browser, and that stops if you leave the page; after 10 minutes without the page, the server
+  converts the episodes that did arrive.
+- Switching tabs keeps everything: all tabs stay loaded and are only hidden, and each re-reads the server when shown.
 - Each `<uuid>/` has a hidden `.job.json` with the source folder, status and finished uploads; uploads skip hidden
   files, so it never reaches the bucket. Recorded uploads are checked against the bucket's folders, so a folder
   deleted from the bucket shows as not uploaded again.

@@ -10,9 +10,9 @@ router.get('/', async (req, res) => {
   res.json(await scanLibrary())
 })
 
-// Convert "<downloads>/<folder>/" in place: { folder }
+// Convert "<downloads>/<folder>/" in place: { folder, files?: [{ relativePath, size }] }
 router.post('/convert', async (req, res) => {
-  res.status(201).json(await convertFolder(req.body?.folder))
+  res.status(201).json(await convertFolder(req.body?.folder, req.body?.files))
 })
 
 // Upload "<downloads>/<id>/" to Cloudflare R2 (credentials in X-R2-* headers): { prefix?, skipExisting? }

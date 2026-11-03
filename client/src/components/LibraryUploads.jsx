@@ -45,7 +45,7 @@ const STATUS = {
 }
 
 /** Upload tab: converted folders on the server, uploaded to the bucket on click. */
-export default function LibraryUploads({ active, settings }) {
+export default function LibraryUploads({ active, settings, refreshKey = 0 }) {
   const configured = isR2Configured(settings)
   const [data, setData] = useState(null)
   const [series, setSeries] = useState(null) // top-level folders in the bucket; null = unknown
@@ -77,9 +77,10 @@ export default function LibraryUploads({ active, settings }) {
     [configured, settings],
   )
 
+  // Reload when shown, and when an upload was started from the "Choose folder" form below (refreshKey)
   useEffect(() => {
     if (active) load()
-  }, [active, load])
+  }, [active, load, refreshKey])
 
   // Poll while something is converting or uploading (without re-listing the bucket every time)
   const running = data?.converted.some((c) => c.status === 'converting' || c.r2?.status === 'uploading')

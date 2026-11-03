@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { r2 } from '../api.js'
+import { library, r2 } from '../api.js'
 import {
   cleanPrefix,
   formatBytes,
@@ -12,6 +12,7 @@ import {
 import FolderPicker from './FolderPicker.jsx'
 
 const CONCURRENCY = 6
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 function formatEta(seconds) {
@@ -21,7 +22,7 @@ function formatEta(seconds) {
   return m < 60 ? `${m}m ${Math.round(seconds % 60)}s left` : `${Math.floor(m / 60)}h ${m % 60}m left`
 }
 
-export default function UploadPanel({ settings, onPreview }) {
+export default function UploadPanel({ settings, onPreview, onServerUpload }) {
   const configured = isR2Configured(settings)
   const [folder, setFolder] = useState(null) // result of readUploadFolder
   const [prefix, setPrefix] = useState('')
@@ -92,6 +93,23 @@ export default function UploadPanel({ settings, onPreview }) {
     }
     setError(null)
     setEpisodes(null)
+
+    // A converted "<uuid>" folder that is also in the server's downloads folder (e.g. Chrome on the same pod) is
+    // uploaded by the server from its own copy: it keeps going if this page is closed or left.
+    if (UUID.test(folder.folderName)) {
+      try {
+        await library.upload(folder.folderName, settings, { prefix: dest, skipExisting })
+        setProgress({ status: 'server', prefix: dest })
+        onServerUpload?.()
+        return
+      } catch (e) {
+        if (e.status !== 404) {
+          setError(e.message)
+          return
+        }
+        // 404: not on the server, upload from this browser
+      }
+    }
 
     const controller = new AbortController()
     abortRef.current = controller
@@ -275,8 +293,8 @@ export default function UploadPanel({ settings, onPreview }) {
 
         {folder && folder.episodes === 0 && (
           <p className="banner warn">
-            No master.m3u8 files found. Pick a converted series folder (it contains manifest.json and one folder
-            per episode), not the original MP4 folder.
+            No master.m3u8 files found. Pick a converted series folder (it contains manifest.json and one folder per
+            episode), not the original MP4 folder.
           </p>
         )}
 
@@ -312,7 +330,13 @@ export default function UploadPanel({ settings, onPreview }) {
           </div>
         )}
 
-        {progress && <UploadProgress progress={progress} />}
+        {progress && progress.status !== 'server' && <UploadProgress progress={progress} />}
+        {progress?.status === 'server' && (
+          <p className="banner success">
+            Uploading on the server to {settings.bucket}/{progress.prefix}/. Progress is shown in "Converted folders"
+            above, and it keeps going even if you leave this page.
+          </p>
+        )}
 
         {folder && (
           <div className="card-foot">
@@ -333,9 +357,13 @@ export default function UploadPanel({ settings, onPreview }) {
                   type="button"
                   className="btn btn-primary btn-lg"
                   onClick={() => upload(folder.files)}
-                  disabled={!dest || progress?.status === 'done'}
+                  disabled={!dest || progress?.status === 'done' || progress?.status === 'server'}
                 >
-                  {progress?.status === 'done' ? 'Uploaded ✓' : `Upload to ${settings.bucket}`}
+                  {progress?.status === 'done'
+                    ? 'Uploaded ✓'
+                    : progress?.status === 'server'
+                      ? 'Uploading on the server'
+                      : `Upload to ${settings.bucket}`}
                 </button>
               )}
             </div>

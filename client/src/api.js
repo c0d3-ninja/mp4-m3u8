@@ -86,8 +86,9 @@ export const move = {
 /** Folders in the server's downloads folder: MP4 folders to convert, converted folders to upload. */
 export const library = {
   list: () => request('GET', '/api/library'),
-  convert: (folder) => request('POST', '/api/library/convert', { folder }),
-  upload: (id, settings) => request('POST', `/api/library/${encodeURIComponent(id)}/upload`, {}, r2Headers(settings)),
+  convert: (folder, files) => request('POST', '/api/library/convert', { folder, files }),
+  upload: (id, settings, { prefix, skipExisting } = {}) =>
+    request('POST', `/api/library/${encodeURIComponent(id)}/upload`, { prefix, skipExisting }, r2Headers(settings)),
   cancelUpload: (id) => request('DELETE', `/api/library/${encodeURIComponent(id)}/upload`),
 }
 

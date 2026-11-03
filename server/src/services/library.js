@@ -157,8 +157,12 @@ export async function getConverted(id) {
   return describeOutput(root, id, new Map([...allJobs()].map((j) => [j.id, j])))
 }
 
-/** POST /api/library/convert { folder }: convert "<downloads>/<folder>/" in place, without uploading anything. */
-export async function convertFolder(name) {
+/**
+ * POST /api/library/convert { folder, files? }: convert "<downloads>/<folder>/" in place, without uploading anything.
+ * `files` ([{ relativePath, size }], e.g. the episodes ticked after picking the folder in the browser) limits it to
+ * those videos; each must exist there with the same size, otherwise 409 so the browser uploads its own copy instead.
+ */
+export async function convertFolder(name, only) {
   const folder = String(name ?? '')
   if (!folder || folder.startsWith('.') || /[\\/\u0000]/.test(folder) || folder === '..') {
     throw new HttpError(400, 'Pick a folder from the list')
@@ -180,8 +184,19 @@ export async function convertFolder(name) {
     }
   }
 
-  const videos = await findVideos(real)
+  let videos = await findVideos(real)
   if (videos.length === 0) throw new HttpError(400, `No videos in "${folder}"`)
+  if (Array.isArray(only)) {
+    const onDisk = new Map(videos.map((v) => [v.relativePath, v]))
+    videos = only.map((f) => {
+      const v = onDisk.get(String(f?.relativePath ?? ''))
+      if (!v || v.size !== Number(f?.size)) {
+        throw new HttpError(409, `"${folder}" on the server has different files than the folder you picked`)
+      }
+      return v
+    })
+    if (videos.length === 0) throw new HttpError(400, 'Select at least one video')
+  }
   const drama = await readJson(path.join(real, DRAMA_FILE))
 
   const job = createJob({

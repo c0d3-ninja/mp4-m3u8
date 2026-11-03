@@ -73,18 +73,25 @@ export function busyJobIds() {
 // Finished jobs whose page was closed would otherwise stay in memory forever. Forgetting a done job
 // keeps its output in the downloads folder (removeJob only deletes the partial output of failed jobs).
 const IDLE_JOB_MS = 6 * 60 * 60 * 1000
+// A browser upload whose page was closed or navigated away (no polling, nothing arriving) for this long is finished
+// with the episodes that did arrive, so they are converted and get a manifest instead of waiting forever.
+const ABANDONED_UPLOAD_MS = 10 * 60 * 1000
 setInterval(() => {
-  const cutoff = Date.now() - IDLE_JOB_MS
+  const now = Date.now()
   for (const job of jobs.values()) {
-    if (job.lastSeen >= cutoff) continue
-    if (!isBusy(job)) {
+    if (job.status === 'uploading' && !job.files.some((f) => f.status === 'uploading')) {
+      if (job.lastSeen < now - ABANDONED_UPLOAD_MS) {
+        try {
+          finalizeUploads(job)
+        } catch {
+          /* cancelled meanwhile */
+        }
+      }
+    } else if (!isBusy(job) && job.lastSeen < now - IDLE_JOB_MS) {
       removeJob(job).catch(() => {})
-    } else if (job.status === 'uploading' && !job.files.some((f) => f.status === 'uploading')) {
-      // Page closed mid-upload and never came back: keep the episodes that arrived, like "Convert uploaded episodes"
-      finalizeUploads(job)
     }
   }
-}, 15 * 60 * 1000).unref()
+}, 60 * 1000).unref()
 
 /**
  * Create a job for a folder. `files` = [{ relativePath, size }], paths relative to the folder.
