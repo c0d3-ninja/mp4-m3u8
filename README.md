@@ -92,7 +92,9 @@ downloads folder if it doesn't exist, and the listed files are moved into it.
 - Existing folder names are suggested as you type, and the form says whether the folder will be created or the files
   added to an existing one.
 - A file is never overwritten. If the folder already has a file with that name, the file is skipped and reported.
-- The folder name must be a single name, so `/`, `\`, `.` and `..` are rejected.
+- The folder name is cleaned before the folder is created: apostrophes (`'`) and dots (`.`) are removed and each run
+  of spaces becomes one `-`, so `Love's  Story Vol.2` → `Loves-Story-Vol2`. The form shows the final name as you
+  type. `/` and `\` are rejected.
 
 ## Folders tab
 

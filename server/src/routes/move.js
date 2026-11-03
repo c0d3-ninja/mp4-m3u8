@@ -28,12 +28,23 @@ async function scan(root) {
   return { files, folders }
 }
 
-/** A single folder name: no slashes, not "." / "..", nothing a file system would reject. */
+/**
+ * "  Love's  Story Vol.2 " -> "Loves-Story-Vol2": apostrophes and dots removed, each run of spaces -> one "-".
+ * Keep in sync with folderSlug() in client/src/utils.js, which previews the same name.
+ */
+export function folderSlug(value) {
+  return String(value ?? '')
+    .replace(/['\u2018\u2019.]/g, '')
+    .trim()
+    .replace(/\s+/g, '-')
+}
+
+/** A single folder name: no slashes, nothing a file system would reject. */
 function cleanFolderName(value) {
-  const name = String(value ?? '').trim()
+  const name = folderSlug(value)
   if (!name) throw new HttpError(400, 'Enter a folder name')
-  if (/[\\/\u0000]/.test(name) || name === '.' || name === '..') {
-    throw new HttpError(400, 'The folder name cannot contain "/" or "\\" and cannot be "." or ".."')
+  if (/[\\/\u0000]/.test(name)) {
+    throw new HttpError(400, 'The folder name cannot contain "/" or "\\"')
   }
   if (Buffer.byteLength(name) > 255) throw new HttpError(400, 'The folder name is too long')
   return name

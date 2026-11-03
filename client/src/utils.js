@@ -207,6 +207,17 @@ export function readUploadFolder(fileList) {
   }
 }
 
+/**
+ * Move tab folder name: "  Love's  Story Vol.2 " -> "Loves-Story-Vol2" (apostrophes and dots removed,
+ * each run of spaces -> one "-"). Same as folderSlug() in server/src/routes/move.js.
+ */
+export function folderSlug(value) {
+  return String(value ?? '')
+    .replace(/['\u2018\u2019.]/g, '')
+    .trim()
+    .replace(/\s+/g, '-')
+}
+
 const TAB_KEY = 'mp4-m3u8:tab'
 export const storedTab = {
   get() {

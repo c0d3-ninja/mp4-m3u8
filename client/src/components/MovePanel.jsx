@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { move } from '../api.js'
-import { formatBytes, naturalCompare } from '../utils.js'
+import { folderSlug, formatBytes, naturalCompare } from '../utils.js'
 
 const formatDate = (iso) => new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 
@@ -31,8 +31,8 @@ export default function MovePanel({ onOpenFolder }) {
     load()
   }, [load])
 
-  const name = folder.trim()
-  const invalid = /[\\/]/.test(name) || name === '.' || name === '..'
+  const name = folderSlug(folder) // the folder that will actually be created / used
+  const invalid = /[\\/]/.test(name)
   const exists = Boolean(name) && data?.folders.includes(name)
   const files = data?.files || []
   const totalBytes = files.reduce((s, f) => s + f.size, 0)
@@ -135,10 +135,12 @@ export default function MovePanel({ onOpenFolder }) {
               <option key={f} value={f} />
             ))}
           </datalist>
-          {name && (
-            <span className={`small ${invalid ? 'error-text' : 'muted'}`}>
-              {invalid
-                ? 'The folder name cannot contain "/" or "\\" and cannot be "." or "..".'
+          {folder.trim() && (
+            <span className={`small ${invalid || !name ? 'error-text' : 'muted'}`}>
+              {!name
+                ? 'Enter a folder name with at least one letter or number.'
+                : invalid
+                ? 'The folder name cannot contain "/" or "\\".'
                 : exists
                   ? `"${name}" already exists. The files will be added to it; files with the same name are skipped.`
                   : `A new folder "${rootName}/${name}" will be created.`}
