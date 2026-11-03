@@ -37,7 +37,7 @@ to the local server only.
 ```
 ~/Downloads/                          DOWNLOADS_DIR
 └── 3f2b9c1e-…-uuid/                  a new random UUID per conversion
-    ├── drama.json                    { "dramaName", "imageUrl", "category" }, written when it starts
+    ├── drama.json                    { "id": "<uuid>", "dramaName", "imageUrl", "category" }, written when it starts
     └── drama/                        always "drama"; the real name is in drama.json
         ├── manifest.json                 episode list for your app (order, durations, paths, posters)
         ├── Episode 1/
@@ -149,6 +149,7 @@ including everything inside it, or a single file.
 | `FFMPEG_PRESET` | `veryfast` | x264 speed vs. quality (`faster`, `medium` = smaller/better but slower) |
 | `HLS_SEGMENT_SECONDS` | `4` | Segment length |
 | `CONCURRENCY` | `1` | Episodes converted at the same time, across all conversions |
+| `FFMPEG_CPU_PERCENT` | `80` | CPU share for ffmpeg. On macOS it is a thread budget (average stays under it, short peaks can go over) plus lower priority; on Linux ffmpeg is also pinned to that many cores with `taskset`, using the container's real CPU quota |
 | `FFMPEG_PATH` / `FFPROBE_PATH` | on `PATH` | Custom ffmpeg location |
 | `DOWNLOADS_DIR` | `~/Downloads` | Folder shown in the Folders tab |
 

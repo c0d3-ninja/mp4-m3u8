@@ -250,10 +250,12 @@ export function toPublic(job) {
   }
 }
 
-/** "<downloads>/<uuid>/drama.json" next to the series folder: { dramaName, imageUrl, category }. */
+/** "<downloads>/<uuid>/drama.json" next to the series folder: { id, dramaName, imageUrl, category }. */
 export async function writeDramaInfo(job) {
   await fsp.mkdir(job.workDir, { recursive: true })
-  await fsp.writeFile(path.join(job.workDir, DRAMA_FILE), `${JSON.stringify(job.drama, null, 2)}\n`)
+  // "id" = the random uuid of this conversion (its folder name and default bucket folder), first in the file
+  const info = { id: job.id, ...job.drama }
+  await fsp.writeFile(path.join(job.workDir, DRAMA_FILE), `${JSON.stringify(info, null, 2)}\n`)
   await updateMarker(job.workDir, () => ({
     id: job.id,
     source: job.source,

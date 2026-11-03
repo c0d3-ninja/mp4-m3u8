@@ -1,7 +1,9 @@
 import { spawn } from 'node:child_process'
+import os from 'node:os'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { config } from '../config.js'
+import { encoderThreads, helperThreads, limitedCommand } from './cpu.js'
 
 // Adaptive bitrate ladder. `short` is the length of the frame's short side, so
 // the same ladder works for landscape (1920x1080) and vertical (1080x1920) video.
@@ -41,7 +43,16 @@ function run(cmd, args, { cwd, signal, onStdout } = {}) {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(abortError())
 
-    const child = spawn(cmd, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] })
+    const [bin, binArgs] = limitedCommand(cmd, args)
+    const child = spawn(bin, binArgs, { cwd, stdio: ['ignore', 'pipe', 'pipe'] })
+    // Lower priority, so the Mac (or server) stays responsive while converting
+    if (child.pid) {
+      try {
+        os.setPriority(child.pid, 10)
+      } catch {
+        /* not permitted: run at normal priority */
+      }
+    }
     let stdout = ''
     let stderr = ''
 
@@ -176,14 +187,19 @@ export async function transcodeToHls(input, outDir, { onProgress, signal } = {})
     '-hide_banner', '-nostdin', '-y',
     '-loglevel', 'error',
     '-progress', 'pipe:1', '-nostats',
+    // CPU limit (FFMPEG_CPU_PERCENT): decoder and scale filters get a small share, the encoders split the rest
+    '-threads', String(helperThreads()),
     '-i', input,
+    '-filter_complex_threads', String(helperThreads()),
     '-filter_complex', filter,
   ]
 
+  const threads = encoderThreads(renditions)
   renditions.forEach((r, i) => {
     args.push(
       '-map', `[v${i}]`,
       `-c:v:${i}`, 'libx264',
+      `-threads:v:${i}`, String(threads[i]),
       `-b:v:${i}`, `${r.videoKbps}k`,
       `-maxrate:v:${i}`, `${Math.round(r.videoKbps * 1.07)}k`,
       `-bufsize:v:${i}`, `${Math.round(r.videoKbps * 1.5)}k`,

@@ -28,6 +28,8 @@ export const config = {
   hlsSegmentSeconds: positiveNumber(process.env.HLS_SEGMENT_SECONDS, 4),
   // How many episodes are transcoded at the same time, across all jobs (default 1: ffmpeg already uses every core)
   concurrency: Math.floor(positiveNumber(process.env.CONCURRENCY, 1)),
+  // Share of the machine's CPU ffmpeg may use (1-100). The rest stays free for the server, the browser and the Mac.
+  ffmpegCpuPercent: positiveNumber(process.env.FFMPEG_CPU_PERCENT, 80),
 
   uploadsDir: path.join(root, 'storage', 'uploads'),
 
