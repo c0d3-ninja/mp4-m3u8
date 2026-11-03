@@ -55,7 +55,7 @@ to the local server only.
   1080p → 1080p / 720p / 480p / 360p, 720p → 720p / 480p / 360p, 900p → 900p / 720p / …, 4K → 2160p / 1440p / 1080p / ….
 - `drama.json` is copied from the selected folder's own `drama.json`, which the **Move** tab writes. Without one,
   `dramaName` is the folder name and `category` / `imageUrl` are `null`. It sits next to the series folder,
-  so the Cloudflare upload (which sends `drama/`) doesn't include it.
+  and both Cloudflare uploads put it next to `manifest.json`.
 - The frame rate is kept as in the source (24, 29.97, 30, 60 fps…) for every quality. Video above 30 fps gets 1.5× the
   bitrate so it looks as good. Each episode's `fps` is in `manifest.json`.
 - H.264 High + AAC 128k stereo, 4 s segments, keyframes aligned across renditions for clean quality switching.
@@ -71,14 +71,16 @@ The **☁️ Upload to Cloudflare** tab uploads a converted series to your R2 bu
 1. Fill in Account ID (or the bucket's "S3 API" URL), Access Key ID, Secret Access Key, bucket and, optionally,
    the public URL → **Save & test connection**. The keys are saved in this browser's localStorage and are only
    sent to the local server, which signs the requests to Cloudflare.
-2. **Choose folder** → pick a converted `My Drama` folder on your computer → **Upload to dramas**.
+2. **Choose folder** → pick a converted `<uuid>` folder (or any folder with `manifest.json`) → **Upload to dramas**.
+   For a `<uuid>` folder, the series inside `drama/` is uploaded with `drama.json` next to `manifest.json`:
+   `<dest>/manifest.json`, `<dest>/drama.json`, `<dest>/Episode 1/…`.
 3. Episodes play from `https://<public-url>/My%20Drama/Episode%201/master.m3u8`, the list is in
    `https://<public-url>/My%20Drama/manifest.json`.
 
 After converting in the **Convert** tab you can also click **Upload** in the "Upload to Cloudflare" box, which
 uploads straight from the server's output folder.
 
-- Upload order is segments → each episode's `master.m3u8` → `manifest.json`, and a phase only starts when
+- Upload order is segments → each episode's `master.m3u8` → `manifest.json` + `drama.json`, and a phase only starts when
   everything before it succeeded, so an interrupted upload never publishes a series with missing files.
 - "Skip files already uploaded" (on by default) compares name + size, so **Retry**/**Resume** only sends what's missing.
 - `.ts`/`.jpg` get `Cache-Control: immutable` (1 year); `.m3u8`/`manifest.json` get 5 minutes.

@@ -247,7 +247,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
  */
 export function uploadRank(relativePath) {
   const name = relativePath.split('/').pop()
-  if (relativePath === 'manifest.json') return 2
+  if (relativePath === 'manifest.json' || relativePath === 'drama.json') return 2
   if (name === 'master.m3u8') return 1
   return 0
 }
@@ -256,8 +256,19 @@ export function uploadRank(relativePath) {
  * Upload a local folder to `prefix/` with a few parallel requests and retries.
  * `state` is mutated with progress so it can be polled.
  */
-export async function uploadDirectory(connection, dir, prefix, state, { signal, skipExisting = true, concurrency = 8 } = {}) {
+export async function uploadDirectory(
+  connection,
+  dir,
+  prefix,
+  state,
+  { signal, skipExisting = true, concurrency = 8, extraFiles = [] } = {},
+) {
   const files = await walkFiles(dir)
+  // Files from outside `dir` uploaded next to it, e.g. "<uuid>/drama.json" -> "<prefix>/drama.json"
+  for (const extra of extraFiles) {
+    const st = await fsp.stat(extra.fullPath).catch(() => null)
+    if (st?.isFile()) files.push({ ...extra, size: st.size })
+  }
   state.total = files.length
   state.totalBytes = files.reduce((s, f) => s + f.size, 0)
 

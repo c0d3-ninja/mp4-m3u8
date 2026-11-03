@@ -254,11 +254,13 @@ export default function UploadPanel({ settings, onPreview }) {
               <p className="muted">
                 {folder.files.length} files · {formatBytes(folder.totalBytes)} · {folder.episodes} episodes
                 {!folder.hasManifest && <span className="warn-text"> · no manifest.json</span>}
+                {folder.hasDramaJson && ' · drama.json'}
               </p>
             ) : (
               <p className="muted">
-                Choose a <strong>My Drama</strong> folder (the one with <strong>manifest.json</strong>) from this
-                computer. To upload a series converted on the server, use the Upload box after converting.
+                Choose a converted <strong>&lt;uuid&gt;</strong> folder (it holds <strong>drama.json</strong> and{' '}
+                <strong>drama/</strong>), or any folder with <strong>manifest.json</strong>. The series and drama.json
+                are uploaded to the destination folder below.
               </p>
             )}
           </div>

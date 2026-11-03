@@ -163,9 +163,9 @@ export function cleanPrefix(prefix) {
     .join('/')
 }
 
-/** Segments first, then master playlists, then manifest.json (see server/src/services/r2.js). */
+/** Segments first, then master playlists, then manifest.json + drama.json (see server/src/services/r2.js). */
 export function uploadRank(relativePath) {
-  if (relativePath === 'manifest.json') return 2
+  if (relativePath === 'manifest.json' || relativePath === 'drama.json') return 2
   if (relativePath.split('/').pop() === 'master.m3u8') return 1
   return 0
 }
@@ -188,6 +188,17 @@ export function readUploadFolder(fileList) {
   }
   if (entries.length === 0) return { folderName, files: [], episodes: 0, hasManifest: false, totalBytes: 0 }
 
+  // A converter output folder "<uuid>/" holds drama.json next to "drama/" (the series with manifest.json).
+  // Upload the series from inside drama/, with drama.json beside manifest.json.
+  const dramaJson = entries.find((e) => e.parts.length === 1 && e.parts[0] === 'drama.json')
+  const seriesInDrama = entries.some((e) => e.parts.length === 2 && e.parts[0] === 'drama' && e.parts[1] === 'manifest.json')
+  if (dramaJson && seriesInDrama) {
+    entries = entries
+      .filter((e) => e.parts.length > 1 && e.parts[0] === 'drama')
+      .map((e) => ({ ...e, parts: e.parts.slice(1) }))
+    entries.push(dramaJson)
+  }
+
   // If the series sits one level down (e.g. "Downloads/My Drama/My Drama/manifest.json"), step into it.
   // Only when that sub-folder holds the manifest, so a single-episode folder is never mistaken for it.
   for (let i = 0; i < 3; i++) {
@@ -208,6 +219,7 @@ export function readUploadFolder(fileList) {
     files,
     episodes: files.filter((f) => f.relativePath.split('/').pop() === 'master.m3u8').length,
     hasManifest: files.some((f) => f.relativePath === 'manifest.json'),
+    hasDramaJson: files.some((f) => f.relativePath === 'drama.json'),
     totalBytes: files.reduce((s, f) => s + f.size, 0),
   }
 }

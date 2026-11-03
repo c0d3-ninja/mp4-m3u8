@@ -408,7 +408,11 @@ export function startR2Upload(job, connection, prefix, uploadDirectory, { skipEx
   }
   job.r2 = state
 
-  uploadDirectory(connection, job.outputRoot, prefix, state, { signal: controller.signal, skipExisting }).then(
+  uploadDirectory(connection, job.outputRoot, prefix, state, {
+    signal: controller.signal,
+    skipExisting,
+    extraFiles: [{ relativePath: DRAMA_FILE, fullPath: path.join(job.workDir, DRAMA_FILE) }],
+  }).then(
     () => {
       if (controller.signal.aborted) state.status = 'cancelled'
       else state.status = state.failed > 0 || state.fatal ? 'failed' : 'done'
