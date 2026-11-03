@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "TikTok Drama → JSON",
+  "version": "1.0.0",
+  "description": "Adds TikTok short dramas to ~/Desktop/dramas-next.json.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAzRGOAZ08Qd6Qcg7DIgREcqq755VJRnMB1DwDopsCswdR8ESVGcr23NT9qhHHev+njlJilrfc4/a6nwkm+um6uXF/rTYEupr0anJYfoj2rOwR4o+T1CP5rxBj89t9g06Num5YT6ycRcRbaFGOBqLB32kSiit5Xs1aZUy8PJz08lmbSpr0So+tSYRHTqTDDqgVedn29Om/tKjx3c8kJCq1/H5OSJNkEr0vn491f3e+McN6a2n0/3FQJjJUgqP8ynjs3F1XI4tI223jKGK7L16HvdqrOrsKLpK0DhZGjTAETw0yOWXlBJYc6nxc/mwD4Anss0JWoUjtw8slKrN+aOSLKQIDAQAB",
+  "permissions": ["nativeMessaging", "storage"],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": ["https://www.tiktok.com/*"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}
