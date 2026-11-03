@@ -278,8 +278,8 @@ export default function UploadPanel({ settings, onPreview, onServerUpload }) {
               </p>
             ) : (
               <p className="muted">
-                Choose a converted <strong>&lt;uuid&gt;</strong> folder (it holds <strong>drama.json</strong> and{' '}
-                <strong>drama/</strong>), or any folder with <strong>manifest.json</strong>. The series and drama.json
+                Choose a converted <strong>&lt;uuid&gt;</strong> folder (episodes, <strong>manifest.json</strong> and{' '}
+                <strong>drama.json</strong>), or any folder with <strong>manifest.json</strong>. The series and drama.json
                 are uploaded to the destination folder below.
               </p>
             )}

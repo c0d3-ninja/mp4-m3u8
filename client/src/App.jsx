@@ -10,6 +10,7 @@ import FoldersPanel from './components/FoldersPanel.jsx'
 import MovePanel from './components/MovePanel.jsx'
 import LibrarySources from './components/LibrarySources.jsx'
 import AutoConvert from './components/AutoConvert.jsx'
+import CutFramesPanel from './components/CutFramesPanel.jsx'
 import LibraryUploads from './components/LibraryUploads.jsx'
 import MissingEpisodes from './components/MissingEpisodes.jsx'
 
@@ -301,6 +302,19 @@ export default function App() {
     }
   }
 
+  /** Back to the folder list. A server conversion keeps running (reopen it from its folder row). */
+  function backToList() {
+    storedJobId.clear()
+    setJob(null)
+    setUploads({})
+    setPreview(null)
+    setSelection(null)
+    setSelected(new Set())
+    setDrama(null)
+    setNotice(null)
+    refreshSources()
+  }
+
   async function cancelJob() {
     if (!window.confirm('Cancel this conversion? Episodes converted so far will be discarded.')) return
     uploadAbort.current?.abort()
@@ -368,6 +382,15 @@ export default function App() {
         <button
           type="button"
           role="tab"
+          aria-selected={tab === 'cut'}
+          className={`tab ${tab === 'cut' ? 'active' : ''}`}
+          onClick={() => switchTab('cut')}
+        >
+          ✂️ Cut frames
+        </button>
+        <button
+          type="button"
+          role="tab"
           aria-selected={tab === 'convert'}
           className={`tab ${tab === 'convert' ? 'active' : ''}`}
           onClick={() => switchTab('convert')}
@@ -414,9 +437,25 @@ export default function App() {
           <LibrarySources
             active={tab === 'convert' && !job && !selection}
             onStarted={startFromLibrary}
+            onOpenJob={openJob}
             refreshKey={sourcesRefresh}
           />
         </div>
+
+        {(job || selection) && (
+          <div className="detail-bar">
+            {uploading ? (
+              <span className="muted small">Uploading from this browser — stay on this page until it finishes.</span>
+            ) : (
+              <button type="button" className="btn btn-ghost btn-sm" onClick={backToList}>
+                ← Back to all folders
+              </button>
+            )}
+            {job && ['uploading', 'processing'].includes(job.status) && !uploading && (
+              <span className="muted small">The conversion keeps running; open it again from its folder.</span>
+            )}
+          </div>
+        )}
 
         {job ? (
           <JobView
@@ -443,7 +482,7 @@ export default function App() {
                 <p className="eyebrow">Selected folder</p>
                 <h2>📁 {selection.folderName}</h2>
                 <p className="muted">
-                  Output: <strong>Downloads/converted/&lt;uuid&gt;/drama/</strong>
+                  Output: <strong>Downloads/converted/&lt;uuid&gt;/</strong>
                 </p>
               </div>
               <div className="actions">
@@ -484,7 +523,7 @@ export default function App() {
               <h2>Or pick a folder on this computer</h2>
               <p className="muted">
                 Every video inside is listed and selected. Each episode becomes a multi-quality HLS stream (1080p →
-                360p), and everything is saved on the server in <strong>Downloads/converted/&lt;random uuid&gt;/drama/</strong>,
+                360p), and everything is saved on the server in <strong>Downloads/converted/&lt;random uuid&gt;/</strong>,
                 with the folder name in drama.json.
               </p>
               <FolderPicker onSelect={handleFolder}>Choose folder</FolderPicker>
@@ -513,6 +552,10 @@ export default function App() {
             switchTab('folders')
           }}
         />
+      </div>
+
+      <div className="tab-panel" hidden={tab !== 'cut'}>
+        <CutFramesPanel active={tab === 'cut'} />
       </div>
 
       <div className="tab-panel" hidden={tab !== 'folders'}>

@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { config } from '../config.js'
-import { HttpError } from './jobs.js'
+import { HttpError, VIDEO_EXTENSIONS } from './jobs.js'
 import { fsLimit } from './limit.js'
 
 // Path helpers that keep every Folders / Move operation inside the downloads folder.
@@ -89,4 +89,29 @@ async function walkStats(dir, top = false) {
   }
   if (top) result.items = entries.length
   return result
+}
+
+// ---------- Videos ----------
+
+const isVideo = (name) => VIDEO_EXTENSIONS.includes(path.extname(name).toLowerCase())
+
+/** Every video under `dir` (hidden files and folders skipped), as [{ relativePath, fullPath, size, mtimeMs }]. */
+export async function findVideos(dir) {
+  const out = []
+  async function walk(current, rel) {
+    const entries = await fsLimit(() => fs.readdir(current, { withFileTypes: true })).catch(() => [])
+    await Promise.all(
+      entries.map(async (e) => {
+        if (e.name.startsWith('.')) return
+        const full = path.join(current, e.name)
+        const relPath = rel ? `${rel}/${e.name}` : e.name
+        if (e.isDirectory()) return walk(full, relPath)
+        if (!e.isFile() || !isVideo(e.name)) return
+        const st = await fsLimit(() => fs.stat(full)).catch(() => null)
+        if (st) out.push({ relativePath: relPath, fullPath: full, size: st.size, mtimeMs: st.mtimeMs })
+      }),
+    )
+  }
+  await walk(dir, '')
+  return out
 }

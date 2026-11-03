@@ -38,8 +38,13 @@ const fpsFactor = (fps) => (fps > 31 ? 1.5 : 1)
 const kbpsForShort = (short) => Math.max(400, Math.round(5000 * (short / 1080) ** 1.5))
 
 /**
- * Spawn a process and collect its output. Rejects with the tail of stderr on failure.
+ * Spawn a process (within the CPU limit, at low priority) and collect its output. Rejects with the tail of stderr on
+ * failure. Exported as runTool for the other ffmpeg steps (e.g. cutting frames).
  */
+export function runTool(cmd, args, options) {
+  return run(cmd, args, options)
+}
+
 function run(cmd, args, { cwd, signal, onStdout } = {}) {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(abortError())

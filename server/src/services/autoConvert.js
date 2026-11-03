@@ -114,6 +114,18 @@ async function run() {
       return
     }
 
+    // The first frames must be cut first (Cut frames tab)
+    if (next.framesCut < next.videos) {
+      pause({
+        folder: next.name,
+        kind: 'uncut',
+        message: next.cutting
+          ? `First frames are still being cut (${next.framesCut}/${next.videos})`
+          : `First frames not cut yet (${next.framesCut}/${next.videos} cut) — use the Cut frames tab`,
+      })
+      return
+    }
+
     try {
       const job = await convertFolder(next.name)
       state.current = { folder: next.name, jobId: job.id, startedAt: new Date().toISOString() }

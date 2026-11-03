@@ -191,3 +191,30 @@ select { background: var(--surface-2); color: var(--text); border: 1px solid var
   .card-foot .btn-lg { width: 100%; justify-content: center; }
   .size { display: none; }
 }
+
+/* Cut frames tab: an opened folder's episodes with their 3rd and 4th frame */
+.cut-item { list-style: none; }
+.row-toggle { background: none; border: 0; padding: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; min-width: 0; }
+.row-toggle:hover .name { text-decoration: underline; }
+.ep-loading { padding: 10px 14px; }
+.ep-grid {
+  list-style: none; margin: 0; padding: 12px 14px 16px; display: grid; gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); border-top: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.ep-card { display: grid; gap: 6px; padding: 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface, transparent); }
+.ep-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.ep-frames { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.ep-frame { position: relative; margin: 0; display: grid; gap: 2px; }
+.ep-frame img {
+  display: block; width: 100%; aspect-ratio: 9 / 16; object-fit: contain; border-radius: 6px; background: #000;
+}
+.ep-frame.loading img, .ep-frame.error img { visibility: hidden; }
+.ep-frame-note {
+  position: absolute; inset: 0 0 18px; display: grid; place-items: center; font-size: 11px; color: var(--muted);
+  border-radius: 6px; background: var(--surface-2);
+}
+.ep-frame figcaption { font-size: 11px; color: var(--muted); text-align: center; }
+
+.detail-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 4px 0 10px; scroll-margin-top: 12px; }
+.rows + .detail-bar { margin: 10px 0 0; }

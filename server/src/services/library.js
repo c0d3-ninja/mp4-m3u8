@@ -1,7 +1,8 @@
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { CONVERTED_FOLDER, config } from '../config.js'
-import { folderStats, isInside, realRoot } from './downloads.js'
+import { findVideos, folderStats, isInside, realRoot } from './downloads.js'
+import { isCutBusy, isCutFile, readCutMarker } from './cutFrames.js'
 import { fsLimit } from './limit.js'
 import { readMarker } from './marker.js'
 import { episodeGaps } from './episodes.js'
@@ -24,7 +25,6 @@ import {
 // What the downloads folder holds, for the Convert tab (folders of MP4s) and the Upload tab (converted output).
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const isVideo = (name) => VIDEO_EXTENSIONS.includes(path.extname(name).toLowerCase())
 
 async function readJson(file) {
   try {
@@ -35,36 +35,16 @@ async function readJson(file) {
   }
 }
 
-/** A converter output folder: "<downloads>/converted/<uuid>/" holding "drama/". */
+/** A converter output folder: "<downloads>/converted/<uuid>/" holding manifest.json or .job.json (or old drama/). */
 async function isOutputDir(name) {
   if (!UUID.test(name)) return false
-  const st = await fsp.stat(path.join(config.convertedDir, name, SERIES_DIR)).catch(() => null)
-  return Boolean(st?.isDirectory())
+  const dir = path.join(config.convertedDir, name)
+  const has = (p) => fsp.stat(path.join(dir, p)).then(() => true, () => false)
+  return (await has('manifest.json')) || (await has('.job.json')) || (await has(SERIES_DIR))
 }
 
 /** "converted" (any case: macOS folders are case-insensitive) is the output folder, never a drama to convert. */
 export const isConvertedFolderName = (name) => String(name).toLowerCase() === CONVERTED_FOLDER
-
-/** Every video under `dir` (hidden files and folders skipped), as [{ relativePath, fullPath, size }]. */
-async function findVideos(dir) {
-  const out = []
-  async function walk(current, rel) {
-    const entries = await fsLimit(() => fsp.readdir(current, { withFileTypes: true })).catch(() => [])
-    await Promise.all(
-      entries.map(async (e) => {
-        if (e.name.startsWith('.')) return
-        const full = path.join(current, e.name)
-        const relPath = rel ? `${rel}/${e.name}` : e.name
-        if (e.isDirectory()) return walk(full, relPath)
-        if (!e.isFile() || !isVideo(e.name)) return
-        const st = await fsLimit(() => fsp.stat(full)).catch(() => null)
-        if (st) out.push({ relativePath: relPath, fullPath: full, size: st.size })
-      }),
-    )
-  }
-  await walk(dir, '')
-  return out
-}
 
 const pickDrama = dramaSummary
 
@@ -81,7 +61,7 @@ async function describeOutput(name, liveJobs) {
   const [drama, marker, manifest, stats] = await Promise.all([
     readJson(path.join(dir, DRAMA_FILE)),
     readMarker(dir),
-    readJson(path.join(dir, SERIES_DIR, 'manifest.json')),
+    readJson(path.join(dir, 'manifest.json')),
     folderStats(dir),
   ])
   const job = liveJobs.get(name)
@@ -107,10 +87,11 @@ async function describeOutput(name, liveJobs) {
 
 async function describeSource(root, name) {
   const dir = path.join(root, name)
-  const [videos, drama, st] = await Promise.all([
+  const [videos, drama, st, cutMarker] = await Promise.all([
     findVideos(dir),
     readJson(path.join(dir, DRAMA_FILE)),
     fsp.stat(dir),
+    readCutMarker(dir),
   ])
   // Episode count from drama.json ("totalEpisodes", saved by the extension); null when missing or not a number
   const total = Number(drama?.totalEpisodes)
@@ -119,6 +100,9 @@ async function describeSource(root, name) {
   return {
     name,
     videos: videos.length,
+    // Videos whose first frames were already cut (Cut frames tab)
+    framesCut: videos.filter((v) => isCutFile(cutMarker, v)).length,
+    cutting: isCutBusy(name),
     totalEpisodes,
     // Every episode is there: as many videos as drama.json says, and no episode number missing
     complete: totalEpisodes !== null && videos.length === totalEpisodes && gaps.length === 0,
@@ -190,6 +174,7 @@ export async function convertFolder(name, only) {
   if (!isInside(root, real) || real === root) throw new HttpError(403, 'Path is outside the downloads folder')
   if (isConvertedFolderName(folder)) throw new HttpError(400, 'That is the folder of converted output')
 
+  if (isCutBusy(folder)) throw new HttpError(409, `"${folder}" is still having its first frames cut`)
   for (const job of allJobs()) {
     if (job.fromDisk && job.source === folder && ['uploading', 'processing'].includes(job.status)) {
       throw new HttpError(409, `"${folder}" is already being converted`)

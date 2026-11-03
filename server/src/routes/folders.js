@@ -6,6 +6,7 @@ import { HttpError, SERIES_DIR, VIDEO_EXTENSIONS, busyJobIds } from '../services
 import { episodeGaps } from '../services/episodes.js'
 import { folderStats, invalidateStats, isInside, resolveInRoot } from '../services/downloads.js'
 import { isConvertedFolderName } from '../services/library.js'
+import { isCutBusy } from '../services/cutFrames.js'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -99,7 +100,7 @@ router.delete('/', async (req, res) => {
     ? second
       ? busy.has(second)
       : [...busy].some((id) => UUID.test(id))
-    : busy.has(first)
+    : busy.has(first) || isCutBusy(first)
   if (hit) {
     throw new HttpError(409, 'This folder is still being converted or uploaded. Cancel that job first, or wait for it to finish.')
   }

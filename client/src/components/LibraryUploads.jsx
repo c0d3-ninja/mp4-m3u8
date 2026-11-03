@@ -117,7 +117,7 @@ export default function LibraryUploads({ active, settings, refreshKey = 0 }) {
     }
   }
 
-  /** Compare every local file (drama/ + drama.json) with the bucket. */
+  /** Compare every local file (episodes, manifest.json, drama.json) with the bucket. */
   async function verify(item) {
     setChecks((c) => ({ ...c, [item.id]: { checking: true } }))
     try {

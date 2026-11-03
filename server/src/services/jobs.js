@@ -7,7 +7,9 @@ import { recordUpload, updateMarker } from './marker.js'
 
 export const VIDEO_EXTENSIONS = ['.mp4', '.m4v', '.mov', '.mkv', '.webm', '.avi']
 const MAX_FILES = 2000
-// Every series is written to "<downloads>/converted/<uuid>/drama/"; the real name is in drama.json next to it
+// Every series is written to "<downloads>/converted/<uuid>/" (episode folders + manifest.json + drama.json); the real name is in drama.json next to it
+// Old layout only: the episodes used to sit in "<uuid>/drama/". Now they are directly in "<uuid>/" next to
+// manifest.json and drama.json; old folders are flattened on startup (see flattenOutput).
 export const SERIES_DIR = 'drama'
 
 const jobs = new Map()
@@ -230,7 +232,7 @@ export function createJob({ folderName, files, drama: info, fromDisk = false } =
     cancelled: false,
     uploadDir: path.join(config.uploadsDir, id),
     workDir: path.join(config.convertedDir, id),
-    outputRoot: path.join(config.convertedDir, id, SERIES_DIR),
+    outputRoot: path.join(config.convertedDir, id), // episodes go straight into the uuid folder
     controllers: new Set(),
     running: new Set(),
     r2: null, // Cloudflare upload of the converted output
@@ -254,7 +256,7 @@ export function toPublic(job) {
     error: job.error,
     output: job.output,
     r2: job.r2,
-    hlsBaseUrl: `/hls/${job.id}/${SERIES_DIR}`,
+    hlsBaseUrl: `/hls/${job.id}`,
     files: job.files.map((f) => ({
       id: f.id,
       relativePath: f.relativePath,
@@ -383,7 +385,7 @@ function maybeFinish(job) {
     (size) => {
       if (job.cancelled) return
       job.output = {
-        folder: `${job.id}/${SERIES_DIR}`, // relative to the downloads folder
+        folder: `converted/${job.id}`, // relative to the downloads folder
         path: job.outputRoot,
         size,
       }
@@ -478,7 +480,11 @@ function runR2Upload(target, connection, prefix, uploadDirectory, { skipExisting
   uploadDirectory(connection, target.outputRoot, prefix, state, {
     signal: controller.signal,
     skipExisting,
-    extraFiles: [{ relativePath: DRAMA_FILE, fullPath: path.join(target.workDir, DRAMA_FILE) }],
+    // Old layout (episodes in "drama/"): drama.json sits outside the uploaded folder, so add it
+    extraFiles:
+      target.outputRoot === target.workDir
+        ? []
+        : [{ relativePath: DRAMA_FILE, fullPath: path.join(target.workDir, DRAMA_FILE) }],
   }).then(
     () => {
       if (controller.signal.aborted) state.status = 'cancelled'
@@ -512,7 +518,7 @@ export function startFolderUpload(id, connection, prefix, uploadDirectory, optio
   let target = folderUploads.get(id)
   if (!target) {
     const workDir = path.join(config.convertedDir, id)
-    target = { id, workDir, outputRoot: path.join(workDir, SERIES_DIR), r2: null, r2Controller: null }
+    target = { id, workDir, outputRoot: workDir, r2: null, r2Controller: null }
     folderUploads.set(id, target)
   }
   return runR2Upload(target, connection, prefix, uploadDirectory, options)
@@ -558,6 +564,38 @@ export async function prepareStorage() {
   )
   await fsp.writeFile(path.join(config.uploadsDir, '.gitkeep'), '')
   await moveOldOutput()
+  // Old "<uuid>/drama/<episodes>" folders: move the episodes up into "<uuid>/"
+  const converted = await fsp.readdir(config.convertedDir, { withFileTypes: true }).catch(() => [])
+  for (const e of converted) {
+    if (!e.isDirectory() || !UUID_NAME.test(e.name)) continue
+    // Never let tidying up stop the server from starting
+    await flattenOutput(path.join(config.convertedDir, e.name)).catch((err) =>
+      console.warn(`Could not flatten ${e.name}: ${err.message}`),
+    )
+  }
+}
+
+/** "<uuid>/drama/*" -> "<uuid>/*", then remove the empty drama/. Renames on the same disk, so it is instant. */
+export async function flattenOutput(dir) {
+  const series = path.join(dir, SERIES_DIR)
+  const names = await fsp.readdir(series).catch(() => null)
+  if (!names) return false
+  let left = 0
+  for (const name of names) {
+    const to = path.join(dir, name)
+    if (await fsp.lstat(to).then(() => true, () => false)) {
+      if (name !== '.DS_Store') console.warn(`Not moving ${path.join(series, name)}: ${to} already exists`)
+      left++
+      continue
+    }
+    await fsp.rename(path.join(series, name), to)
+  }
+  if (left === 0 || (left === 1 && names.includes('.DS_Store'))) {
+    // Empty now (apart from a .DS_Store): remove it
+    await fsp.rm(series, { recursive: true, force: true })
+  }
+  console.log(`Flattened ${path.basename(dir)}: episodes moved out of ${SERIES_DIR}/`)
+  return true
 }
 
 const UUID_NAME = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -572,7 +610,9 @@ async function moveOldOutput() {
     if (!e.isDirectory() || !UUID_NAME.test(e.name)) continue
     const from = path.join(config.downloadsDir, e.name)
     const to = path.join(config.convertedDir, e.name)
-    const isOutput = await fsp.stat(path.join(from, SERIES_DIR)).then((s) => s.isDirectory(), () => false)
+    const isOutput =
+      (await fsp.stat(path.join(from, SERIES_DIR)).then((s) => s.isDirectory(), () => false)) ||
+      (await fsp.stat(path.join(from, 'manifest.json')).then((s) => s.isFile(), () => false))
     if (!isOutput) continue
     if (await fsp.stat(to).then(() => true, () => false)) {
       console.warn(`Not moving ${from}: ${to} already exists`)

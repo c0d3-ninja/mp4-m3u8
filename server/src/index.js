@@ -11,6 +11,7 @@ import foldersRouter from './routes/folders.js'
 import moveRouter from './routes/move.js'
 import libraryRouter from './routes/library.js'
 import autoRouter from './routes/auto.js'
+import cutRouter from './routes/cut.js'
 import { getJob, prepareStorage } from './services/jobs.js'
 import { describeCpuLimit } from './services/cpu.js'
 
@@ -25,7 +26,7 @@ app.use('/api/r2', r2Router)
 
 app.use(express.json({ limit: '5mb' }))
 
-// Converted HLS output of a job, used by the in-app preview player: /hls/<jobId>/drama/...
+// Converted HLS output of a job, used by the in-app preview player: /hls/<jobId>/EP01/master.m3u8
 // Only a job's own output folder is served, never the rest of the downloads folder.
 const hlsOptions = {
   fallthrough: false, // a missing file is a 404, never the client app below
@@ -50,6 +51,7 @@ app.use('/api/folders', foldersRouter)
 app.use('/api/move', moveRouter)
 app.use('/api/library', libraryRouter)
 app.use('/api/auto', autoRouter)
+app.use('/api/cut', cutRouter)
 
 app.use('/api', (req, res) => {
   res.status(404).json({ error: 'Not found' })
@@ -75,7 +77,7 @@ app.use((err, req, res, next) => {
 
 const server = app.listen(config.port, () => {
   console.log(`Server listening on http://localhost:${config.port}`)
-  console.log(`Converted series go to ${config.convertedDir}/<uuid>/drama/`)
+  console.log(`Converted series go to ${config.convertedDir}/<uuid>/`)
   console.log(describeCpuLimit())
   console.log(`Transcoding with ${config.ffmpegPath} (preset ${config.ffmpegPreset}, ${config.concurrency} at a time)`)
 })

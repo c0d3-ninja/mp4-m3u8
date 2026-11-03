@@ -93,6 +93,20 @@ export const library = {
   verify: (id, settings) => request('GET', `/api/library/${encodeURIComponent(id)}/verify`, undefined, r2Headers(settings)),
 }
 
+/** Cut frames tab: cut the first frames of every video in a folder, in place, before converting. */
+export const cut = {
+  get: () => request('GET', '/api/cut'),
+  folder: (folder) => request('POST', '/api/cut', { folder }),
+  all: () => request('POST', '/api/cut/all'),
+  resume: () => request('POST', '/api/cut/resume'),
+  cancelAll: () => request('POST', '/api/cut/cancel-all'),
+  cancel: (folder) => request('DELETE', `/api/cut?folder=${encodeURIComponent(folder)}`),
+  episodes: (folder) => request('GET', `/api/cut/episodes?folder=${encodeURIComponent(folder)}`),
+  /** JPEG of frame n (0-based); `version` (the file's modified time) makes a cut file load fresh. */
+  frameUrl: (folder, file, n, version) =>
+    `/api/cut/frame?folder=${encodeURIComponent(folder)}&file=${encodeURIComponent(file)}&n=${n}&v=${version}`,
+}
+
 /** Auto convert: every folder with a drama.json, one after another, paused on the first error. */
 export const auto = {
   get: () => request('GET', '/api/auto'),

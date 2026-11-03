@@ -28,7 +28,7 @@ function conversionLabel(conversions) {
 }
 
 /** Convert tab: folders of videos in the server's downloads folder, converted in place on click. */
-export default function LibrarySources({ active, onStarted, refreshKey = 0 }) {
+export default function LibrarySources({ active, onStarted, onOpenJob, refreshKey = 0 }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [starting, setStarting] = useState(null)
@@ -58,6 +58,14 @@ export default function LibrarySources({ active, onStarted, refreshKey = 0 }) {
       src.gaps.length > 0 &&
       !window.confirm(
         `"${src.name}" is missing ${gapCount(src.gaps) === 1 ? 'episode' : 'episodes'} ${formatGaps(src.gaps)}. Convert the ${src.videos} it has anyway?`,
+      )
+    ) {
+      return
+    }
+    if (
+      src.framesCut < src.videos &&
+      !window.confirm(
+        `The first frames of ${src.videos - src.framesCut} of the ${src.videos} videos in "${src.name}" are not cut yet (Cut frames tab). Convert anyway?`,
       )
     ) {
       return
@@ -127,7 +135,10 @@ export default function LibrarySources({ active, onStarted, refreshKey = 0 }) {
                         {src.videos} {src.videos === 1 ? 'video' : 'videos'} (no totalEpisodes in drama.json)
                       </span>
                     )}{' '}
-                    · {formatBytes(src.size)}
+                    · {formatBytes(src.size)} ·{' '}
+                    <span className={src.framesCut < src.videos ? 'warn-text' : ''}>
+                      {src.cutting ? '✂️ cutting…' : `✂️ ${src.framesCut}/${src.videos} cut`}
+                    </span>
                     {src.drama?.category && ` · ${src.drama.category}`}
                     {src.gaps.length > 0 && (
                       <span className="warn-text"> · missing episodes {formatGaps(src.gaps)}</span>
@@ -135,10 +146,19 @@ export default function LibrarySources({ active, onStarted, refreshKey = 0 }) {
                     {label.detail && ` · last converted: ${label.detail}`}
                   </span>
                 </div>
+                {label.busy && onOpenJob && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => onOpenJob(src.conversions.find((c) => c.status === 'converting').id)}
+                  >
+                    Open
+                  </button>
+                )}
                 <button
                   type="button"
                   className={`btn btn-sm ${label.converted ? 'btn-ghost' : 'btn-primary'}`}
-                  disabled={Boolean(starting) || label.busy}
+                  disabled={Boolean(starting) || label.busy || src.cutting}
                   onClick={() => convert(src, label)}
                 >
                   {starting === src.name ? 'Starting…' : label.converted ? 'Convert again' : 'Convert'}
