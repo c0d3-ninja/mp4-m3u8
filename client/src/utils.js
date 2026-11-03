@@ -28,11 +28,16 @@ export function readFolderSelection(fileList) {
   const folderName = firstPath.includes('/') ? firstPath.split('/')[0] : 'Videos'
 
   const items = []
+  let dramaFile = null // "<folder>/drama.json" written by the Move tab
   for (const file of all) {
     const full = file.webkitRelativePath || file.name
     const parts = full.split('/')
     if (full.includes('/')) parts.shift() // drop the selected folder itself
     if (parts.length === 0 || parts.some((p) => p.startsWith('.'))) continue
+    if (parts.length === 1 && parts[0] === 'drama.json') {
+      dramaFile = file
+      continue
+    }
     if (!VIDEO_EXTENSIONS.includes(extensionOf(parts[parts.length - 1]))) continue
 
     const relativePath = normalizePath(parts.join('/'))
@@ -40,7 +45,7 @@ export function readFolderSelection(fileList) {
   }
   items.sort((a, b) => naturalCompare(a.relativePath, b.relativePath))
 
-  return { folderName, items, totalFiles: all.length }
+  return { folderName, items, totalFiles: all.length, dramaFile }
 }
 
 export function formatBytes(bytes) {
@@ -216,6 +221,26 @@ export function folderSlug(value) {
     .replace(/['\u2018\u2019.]/g, '')
     .trim()
     .replace(/\s+/g, '-')
+}
+
+/** Last category written by the Move tab, kept in this browser so it survives a refresh. */
+const CATEGORY_KEY = 'mp4-m3u8:lastCategory'
+export const storedCategory = {
+  get() {
+    try {
+      return localStorage.getItem(CATEGORY_KEY) || ''
+    } catch {
+      return ''
+    }
+  },
+  set(value) {
+    try {
+      if (value) localStorage.setItem(CATEGORY_KEY, value)
+      else localStorage.removeItem(CATEGORY_KEY)
+    } catch {
+      /* storage blocked: it just won't be remembered */
+    }
+  },
 }
 
 const TAB_KEY = 'mp4-m3u8:tab'

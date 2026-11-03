@@ -53,9 +53,8 @@ to the local server only.
 - The source's own resolution is always the highest quality, followed by every smaller standard size. Sizes go by the
   short side, so vertical (1080×1920) and landscape (1920×1080) both work. Nothing is upscaled or capped:
   1080p → 1080p / 720p / 480p / 360p, 720p → 720p / 480p / 360p, 900p → 900p / 720p / …, 4K → 2160p / 1440p / 1080p / ….
-- `drama.json`: `dramaName` is the name of the folder you picked; `category` and `imageUrl` come from the optional
-  **Category** and **Image URL** fields shown before **Convert** (the image URL must be http/https; both are `null`
-  when left empty). It sits next to the series folder,
+- `drama.json` is copied from the selected folder's own `drama.json`, which the **Move** tab writes. Without one,
+  `dramaName` is the folder name and `category` / `imageUrl` are `null`. It sits next to the series folder,
   so the Cloudflare upload (which sends `drama/`) doesn't include it.
 - The frame rate is kept as in the source (24, 29.97, 30, 60 fps…) for every quality. Video above 30 fps gets 1.5× the
   bitrate so it looks as good. Each episode's `fps` is in `manifest.json`.
@@ -90,6 +89,10 @@ uploads straight from the server's output folder.
 left alone, and so are macOS `._` files. Type a folder name and click **Move N files**. The folder is created in the
 downloads folder if it doesn't exist, and the listed files are moved into it.
 
+- **Category** and **Image URL** (optional) are saved with the drama name you typed (`Love's Story`, before the
+  folder name is cleaned) as `<folder>/drama.json`: `{ "dramaName", "imageUrl", "category" }`. Converting that folder
+  later copies it into the output. Moving more episodes into a folder that already has one keeps its drama name, and
+  empty fields keep their old values. The image URL must be http/https.
 - Existing folder names are suggested as you type, and the form says whether the folder will be created or the files
   added to an existing one.
 - A file is never overwritten. If the folder already has a file with that name, the file is skipped and reported.

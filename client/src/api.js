@@ -27,8 +27,7 @@ async function request(method, url, body, extraHeaders) {
 }
 
 export const api = {
-  createJob: (folderName, files, { imageUrl, category } = {}) =>
-    request('POST', '/api/jobs', { folderName, files, imageUrl, category }),
+  createJob: (folderName, files, drama) => request('POST', '/api/jobs', { folderName, files, drama }),
   getJob: (id) => request('GET', `/api/jobs/${id}`),
   finalize: (id) => request('POST', `/api/jobs/${id}/finalize`),
   removeJob: (id) => request('DELETE', `/api/jobs/${id}`),
@@ -81,7 +80,7 @@ export const folders = {
 /** Move the top-level MP4s of the downloads folder into a named folder. */
 export const move = {
   preview: () => request('GET', '/api/move'),
-  run: (folder, files) => request('POST', '/api/move', { folder, files }),
+  run: (folder, files, drama) => request('POST', '/api/move', { folder, files, ...drama }),
 }
 
 export const r2 = {

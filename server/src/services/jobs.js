@@ -74,7 +74,7 @@ setInterval(() => {
  * Create a job for a folder. `files` = [{ relativePath, size }], paths relative to the folder.
  */
 /** Optional poster/cover image URL for the drama: "" -> null, otherwise it must be http(s). */
-function cleanImageUrl(value) {
+export function cleanImageUrl(value) {
   const v = String(value ?? '').trim()
   if (!v) return null
   let url
@@ -89,19 +89,37 @@ function cleanImageUrl(value) {
 }
 
 /** Optional category, e.g. "Romance": trimmed, inner whitespace collapsed; "" -> null. */
-function cleanCategory(value) {
+export function cleanCategory(value) {
   const v = String(value ?? '').trim().replace(/\s+/g, ' ')
   if (!v) return null
   if (v.length > 100) throw new HttpError(400, 'Category is too long (max 100 characters)')
   return v
 }
 
-export function createJob({ folderName, files, imageUrl, category } = {}) {
+/** Drama name from drama.json / the Move tab: trimmed, whitespace collapsed; "" -> null. */
+export function cleanDramaName(value) {
+  const v = String(value ?? '').trim().replace(/\s+/g, ' ')
+  if (!v) return null
+  if (v.length > 200) throw new HttpError(400, 'Drama name is too long (max 200 characters)')
+  return v
+}
+
+export const DRAMA_FILE = 'drama.json'
+
+/**
+ * createJob({ folderName, files, drama? }): `drama` is the selected folder's drama.json
+ * ({ dramaName, imageUrl, category }, written by the Move tab). It is copied to "<uuid>/drama.json";
+ * without it the drama name is the folder name.
+ */
+export function createJob({ folderName, files, drama: info } = {}) {
   if (typeof folderName !== 'string' || !folderName.trim()) {
     throw new HttpError(400, 'folderName is required')
   }
-  const image = cleanImageUrl(imageUrl)
-  const dramaCategory = cleanCategory(category)
+  const drama = {
+    dramaName: cleanDramaName(info?.dramaName) || folderName.trim(),
+    imageUrl: cleanImageUrl(info?.imageUrl),
+    category: cleanCategory(info?.category),
+  }
   if (!Array.isArray(files) || files.length === 0) {
     throw new HttpError(400, 'Select at least one video')
   }
@@ -159,7 +177,7 @@ export function createJob({ folderName, files, imageUrl, category } = {}) {
     createdAt: new Date().toISOString(),
     lastSeen: Date.now(),
     // Written to "<downloads>/<uuid>/drama.json" as soon as the job starts
-    drama: { dramaName: folderName.trim(), imageUrl: image, category: dramaCategory },
+    drama,
     files: jobFiles,
     uploadsComplete: false,
     output: null, // { folder, path, size } once done
@@ -182,8 +200,7 @@ export function toPublic(job) {
   return {
     id: job.id,
     folderName: job.folderName,
-    imageUrl: job.drama.imageUrl,
-    category: job.drama.category,
+    drama: job.drama,
     status: job.status,
     createdAt: job.createdAt,
     uploadsComplete: job.uploadsComplete,
@@ -207,7 +224,7 @@ export function toPublic(job) {
 /** "<downloads>/<uuid>/drama.json" next to the series folder: { dramaName, imageUrl, category }. */
 export async function writeDramaInfo(job) {
   await fsp.mkdir(job.workDir, { recursive: true })
-  await fsp.writeFile(path.join(job.workDir, 'drama.json'), `${JSON.stringify(job.drama, null, 2)}\n`)
+  await fsp.writeFile(path.join(job.workDir, DRAMA_FILE), `${JSON.stringify(job.drama, null, 2)}\n`)
 }
 
 /** Called after a file finished uploading to disk. */

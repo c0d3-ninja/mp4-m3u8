@@ -2,7 +2,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { Router } from 'express'
 import { config } from '../config.js'
-import { HttpError } from '../services/jobs.js'
+import { DRAMA_FILE, HttpError, cleanCategory, cleanDramaName, cleanImageUrl } from '../services/jobs.js'
 import { invalidateStats, isInside, realRoot } from '../services/downloads.js'
 
 const router = Router()
@@ -67,11 +67,40 @@ router.get('/', async (req, res) => {
   res.json({ root: config.downloadsDir, ...(await scan(root)) })
 })
 
-// Move MP4s into a folder: POST /api/move { folder, files?: ["Episode 1.mp4", ...] }
+/**
+ * Write "<folder>/drama.json" = { dramaName, imageUrl, category }. When the folder already has one (more episodes
+ * added later), its drama name is kept and empty fields keep their old values, so nothing has to be re-entered.
+ */
+async function writeDramaFile(dir, { dramaName, imageUrl, category }) {
+  const file = path.join(dir, DRAMA_FILE)
+  let old = {}
+  try {
+    const parsed = JSON.parse(await fs.readFile(file, 'utf8'))
+    if (parsed && typeof parsed === 'object') old = parsed
+  } catch {
+    /* none yet, or unreadable: start fresh */
+  }
+  const drama = {
+    dramaName: (typeof old.dramaName === 'string' && old.dramaName.trim()) || dramaName,
+    imageUrl: imageUrl ?? old.imageUrl ?? null,
+    category: category ?? old.category ?? null,
+  }
+  await fs.writeFile(file, `${JSON.stringify(drama, null, 2)}\n`)
+  return drama
+}
+
+// Move MP4s into a folder: POST /api/move { folder, dramaName?, category?, imageUrl?, files?: ["Episode 1.mp4", ...] }
 // `files` is the list the UI showed; when it's left out, every MP4 currently at the top level is moved.
+// `folder` is cleaned to e.g. "Loves-Story"; `dramaName` (what was typed, "Love's Story") goes into drama.json.
 router.post('/', async (req, res) => {
   const root = await realRoot()
   const folder = cleanFolderName(req.body?.folder)
+  // Validate everything before touching the disk
+  const info = {
+    dramaName: cleanDramaName(req.body?.dramaName) || folder,
+    imageUrl: cleanImageUrl(req.body?.imageUrl),
+    category: cleanCategory(req.body?.category),
+  }
   const { files: current } = await scan(root)
   const available = new Set(current.map((f) => f.name))
 
@@ -111,8 +140,9 @@ router.post('/', async (req, res) => {
     }
   }
 
-  if (moved.length) invalidateStats()
-  res.json({ folder, created, moved, skipped })
+  const drama = await writeDramaFile(target, info)
+  invalidateStats()
+  res.json({ folder, created, moved, skipped, drama })
 })
 
 export default router

@@ -15,11 +15,53 @@ const PreviewModal = lazy(() => import('./components/PreviewModal.jsx'))
 const TERMINAL = new Set(['done', 'failed', 'cancelled'])
 const RANK = { uploading: 0, processing: 1, done: 3, failed: 3, cancelled: 3 }
 
+/** Read the selected folder's drama.json (written by the Move tab). */
+async function readDramaFile(file) {
+  if (!file) return { status: 'missing' }
+  try {
+    const data = JSON.parse(await file.text())
+    if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('not an object')
+    const pick = (k) => (typeof data[k] === 'string' && data[k].trim() ? data[k].trim() : null)
+    return { status: 'ok', info: { dramaName: pick('dramaName'), imageUrl: pick('imageUrl'), category: pick('category') } }
+  } catch {
+    return { status: 'invalid' }
+  }
+}
+
+function DramaInfo({ drama, folderName }) {
+  if (!drama) return null
+  if (drama.status !== 'ok') {
+    return (
+      <p className="banner warn">
+        {drama.status === 'invalid' ? 'drama.json in this folder could not be read' : 'No drama.json in this folder'},
+        so drama.json will only have the drama name "{folderName}". Use the Move tab to add a category and image URL.
+      </p>
+    )
+  }
+  const { dramaName, category, imageUrl } = drama.info
+  return (
+    <div className="banner info">
+      <span>
+        <strong>drama.json</strong> · {dramaName || folderName}
+        {category && <> · {category}</>}
+        {imageUrl ? (
+          <>
+            {' '}
+            · <code>{imageUrl}</code>
+          </>
+        ) : (
+          ' · no image URL'
+        )}
+        <span className="muted"> → copied into the converted folder</span>
+      </span>
+    </div>
+  )
+}
+
 export default function App() {
   const [selection, setSelection] = useState(null) // { folderName, items, totalFiles }
   const [selected, setSelected] = useState(() => new Set())
-  const [imageUrl, setImageUrl] = useState('')
-  const [category, setCategory] = useState('')
+  const [drama, setDrama] = useState(null) // { status: 'ok' | 'missing' | 'invalid', info?: { dramaName, imageUrl, category } }
   const [job, setJob] = useState(null)
   const [uploads, setUploads] = useState({}) // fileId -> { progress, done, error }
   const [uploading, setUploading] = useState(false)
@@ -103,7 +145,7 @@ export default function App() {
     return () => window.removeEventListener('beforeunload', onBeforeUnload)
   }, [uploading])
 
-  function handleFolder(fileList) {
+  async function handleFolder(fileList) {
     setError(null)
     setNotice(null)
     const result = readFolderSelection(fileList)
@@ -115,11 +157,7 @@ export default function App() {
       setError(`No videos found in "${result.folderName}". Supported: mp4, m4v, mov, mkv, webm, avi.`)
       return
     }
-    if (result.folderName !== selection?.folderName) {
-      // A different drama
-      setImageUrl('')
-      setCategory('')
-    }
+    setDrama(await readDramaFile(result.dramaFile))
     setSelection(result)
     setSelected(new Set(result.items.map((i) => i.key))) // everything selected by default
   }
@@ -149,7 +187,7 @@ export default function App() {
       created = await api.createJob(
         selection.folderName,
         chosen.map((i) => ({ relativePath: i.relativePath, size: i.size })),
-        { imageUrl: imageUrl.trim(), category: category.trim() },
+        drama?.info,
       )
     } catch (e) {
       setError(e.message)
@@ -250,8 +288,7 @@ export default function App() {
     resetToStart()
     setSelection(null)
     setSelected(new Set())
-    setImageUrl('')
-    setCategory('')
+    setDrama(null)
     setError(null)
     setNotice(null)
   }
@@ -355,34 +392,7 @@ export default function App() {
               </div>
             </div>
 
-            <div className="grid-2">
-              <label className="field">
-                <span>Category (optional)</span>
-                <input
-                  type="text"
-                  placeholder="e.g. Romance"
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value)}
-                  disabled={starting}
-                  maxLength={100}
-                />
-              </label>
-              <label className="field">
-                <span>Image URL (optional)</span>
-                <input
-                  type="text"
-                  inputMode="url"
-                  placeholder="https://example.com/poster.jpg"
-                  value={imageUrl}
-                  onChange={(e) => setImageUrl(e.target.value)}
-                  disabled={starting}
-                  spellCheck={false}
-                />
-              </label>
-            </div>
-            <p className="muted small">
-              Saved with the drama name ({selection.folderName}) in <strong>drama.json</strong> inside the uuid folder.
-            </p>
+            <DramaInfo drama={drama} folderName={selection.folderName} />
 
             <FileList items={selection.items} selected={selected} onToggle={toggle} onToggleAll={toggleAll} />
 

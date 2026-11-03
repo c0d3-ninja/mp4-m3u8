@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useState } from 'react'
 import { move } from '../api.js'
-import { folderSlug, formatBytes, naturalCompare } from '../utils.js'
+import { folderSlug, formatBytes, naturalCompare, storedCategory } from '../utils.js'
 
 const formatDate = (iso) => new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 
 export default function MovePanel({ onOpenFolder }) {
   const [data, setData] = useState(null) // { root, files, folders }
   const [folder, setFolder] = useState('')
+  // Starts with the last category written, so moving several dramas of one genre needs no retyping
+  const [category, setCategory] = useState(() => storedCategory.get())
+  const [imageUrl, setImageUrl] = useState('')
   const [loading, setLoading] = useState(false)
   const [moving, setMoving] = useState(false)
   const [error, setError] = useState(null)
@@ -45,12 +48,16 @@ export default function MovePanel({ onOpenFolder }) {
     setError(null)
     setResult(null)
     try {
-      setResult(
-        await move.run(
-          name,
-          files.map((f) => f.name),
-        ),
+      const done = await move.run(
+        name,
+        files.map((f) => f.name),
+        { dramaName: folder.trim(), category: category.trim(), imageUrl: imageUrl.trim() },
       )
+      setResult(done)
+      // Keep the category that went into drama.json in the field, and remember it across refreshes
+      const written = done.drama.category || ''
+      setCategory(written)
+      storedCategory.set(written)
       await load()
     } catch (err) {
       setError(err.message)
@@ -92,7 +99,9 @@ export default function MovePanel({ onOpenFolder }) {
             <span>
               Moved {result.moved.length} {result.moved.length === 1 ? 'file' : 'files'} into{' '}
               <strong>{result.folder}</strong>
-              {result.created ? ' (new folder)' : ''}.
+              {result.created ? ' (new folder)' : ''}. drama.json: {result.drama.dramaName}
+              {result.drama.category && ` · ${result.drama.category}`}
+              {result.drama.imageUrl ? ' · image URL set' : ' · no image URL'}.
             </span>
             {result.skipped.length > 0 && (
               <ul className="error-list">
@@ -113,23 +122,14 @@ export default function MovePanel({ onOpenFolder }) {
       <form className="form" onSubmit={run}>
         <label className="field">
           <span>Folder name</span>
-          <div className="input-with-btn">
-            <input
-              type="text"
-              list="move-folders"
-              placeholder="e.g. My Drama"
-              value={folder}
-              onChange={(e) => setFolder(e.target.value)}
-              disabled={moving}
-            />
-            <button
-              type="submit"
-              className="btn btn-primary"
-              disabled={!name || invalid || files.length === 0 || moving || loading}
-            >
-              {moving ? 'Moving…' : `Move ${files.length} ${files.length === 1 ? 'file' : 'files'}`}
-            </button>
-          </div>
+          <input
+            type="text"
+            list="move-folders"
+            placeholder="e.g. My Drama"
+            value={folder}
+            onChange={(e) => setFolder(e.target.value)}
+            disabled={moving}
+          />
           <datalist id="move-folders">
             {data?.folders.map((f) => (
               <option key={f} value={f} />
@@ -147,6 +147,46 @@ export default function MovePanel({ onOpenFolder }) {
             </span>
           )}
         </label>
+
+        <div className="grid-2">
+          <label className="field">
+            <span>Category (optional)</span>
+            <input
+              type="text"
+              placeholder="e.g. Romance"
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              disabled={moving}
+              maxLength={100}
+            />
+          </label>
+          <label className="field">
+            <span>Image URL (optional)</span>
+            <input
+              type="text"
+              inputMode="url"
+              placeholder="https://example.com/poster.jpg"
+              value={imageUrl}
+              onChange={(e) => setImageUrl(e.target.value)}
+              disabled={moving}
+              spellCheck={false}
+            />
+          </label>
+        </div>
+        <p className="muted small">
+          Saved as <strong>drama.json</strong> in the folder (drama name = what you typed above) and copied into the
+          converted folder when you convert it.{exists && ' Empty fields keep the values already in its drama.json.'}
+        </p>
+
+        <div className="actions end">
+          <button
+            type="submit"
+            className="btn btn-primary btn-lg"
+            disabled={!name || invalid || files.length === 0 || moving || loading}
+          >
+            {moving ? 'Moving…' : `Move ${files.length} ${files.length === 1 ? 'file' : 'files'}`}
+          </button>
+        </div>
       </form>
 
       {data && (
